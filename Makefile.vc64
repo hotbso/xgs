@@ -4,7 +4,7 @@ TARGET=win.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.obj)
-SDK=f:/games/x-plane\ 10/SDK
+SDK=../SDK
 
 CXX=cl
 LD=link

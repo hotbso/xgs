@@ -1,8 +1,11 @@
+#include <float.h>
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <time.h>
+#include "XPLMPlugin.h"
+#include "XPLMPlanes.h"
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"
 #include "XPLMDataAccess.h"
@@ -24,16 +27,16 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
                 void *inRefcon);
                 
+#define MS_2_FPM 196.850
 
 #define STATE_LAND 1
 #define STATE_AIR 2
 
-#define WINDOW_WIDTH 130
 #define WINDOW_HEIGHT 80
 
 static XPLMWindowID gWindow = NULL;
 static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
-static XPLMDataRef longRef, latRef, craftNumRef;
+static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
 static char landMsg[4][100];
 static int lastState;
@@ -56,9 +59,26 @@ static int logThisLanding = 0;
 static char logAirportId[50];
 static char logAirportName[300];
 static char logAircraftNum[50];
+static char logAircraftIcao[40];
 static time_t landingTime;
 
+#define STD_WINDOW_WIDTH 130
+typedef struct rating_ { float limit; char txt[100]; } rating_t;
+static rating_t std_rating[] = {
+	{0.5, "excellent landing"},
+	{1.0, "good landing"},
+	{1.5, "acceptable landing"},
+	{2.0, "hard landing"},
+	{2.5, "you are fired!!!"},
+	{3.0, "anybody survived?"},
+	{FLT_MAX, "R.I.P."},
+};
 
+#define NRATING 10
+static rating_t acf_rating[NRATING];
+
+static rating_t *rating = std_rating;
+static int window_width = STD_WINDOW_WIDTH;
 
 #ifdef __APPLE__
 int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
@@ -94,7 +114,6 @@ static FILE* getConfigFile(char *mode)
     return fopen(path, mode);
 #endif
 }
-
 
 
 static void saveConfig()
@@ -146,7 +165,6 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     int subMenuItem;
     
     loadConfig();
-    
     strcpy(outName, "Landing Speed 2.0.2");
     strcpy(outSig, "babichev.landspeed");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
@@ -155,6 +173,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
     descrRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     latRef = XPLMFindDataRef("sim/flightmodel/position/latitude");
     longRef = XPLMFindDataRef("sim/flightmodel/position/longitude");
     craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
@@ -188,22 +207,6 @@ static void trim(char *str)
 }
 
 
-#ifdef _MSC_VER
-static double rint(double a)
-{
-    const double two_to_52 = 4.5035996273704960e+15;
-    double fa = fabs(a);
-    double r = two_to_52 + fa;
-    if (fa >= two_to_52) {
-        r = a;
-    } else {
-        r = r - two_to_52;
-        r = _copysign(r, a);
-    }
-    return r;
-}
-#endif
-
 static void writeLandingToLog()
 {
     FILE *f;
@@ -225,9 +228,9 @@ static void writeLandingToLog()
 
     strcpy(buf, ctime(&landingTime));
     trim(buf);
-    fprintf(f, "%s %s %s '%s' %.3f m/s %i fpm %.3f G %s\n", buf, logAircraftNum,
+    fprintf(f, "%s %s %s %s '%s' %.3f m/s %.0f fpm %.3f G %s\n", buf, logAircraftIcao, logAircraftNum,
                 logAirportId, logAirportName, landingSpeed, 
-                (int)rint(landingSpeed * 60.0f * 3.2808f), landingG, 
+                landingSpeed * 60.0f * 3.2808f, landingG, 
                 landMsg[0]);
 
     fclose(f);
@@ -271,6 +274,87 @@ PLUGIN_API int XPluginEnable(void)
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
                 long inMessage,	void *inParam)
 {
+	switch (inMessage) {
+		case XPLM_MSG_PLANE_LOADED:
+			if (inParam == 0) {
+				char acf_path[512];
+				char acf_file[256];
+				char log_line[1024];
+				
+				rating = std_rating;
+				window_width = STD_WINDOW_WIDTH;
+				
+				const char *psep = XPLMGetDirectorySeparator();
+				XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, acf_path);
+				
+				char *s = strrchr(acf_path, psep[0]);
+				if (NULL != s) {
+					strcpy(s+1, "xgs_rating.cfg");
+					sprintf(log_line, "xgs: trying config file %s\n", acf_path);
+					XPLMDebugString(log_line);
+					
+					FILE *f = fopen(acf_path, "r");
+					int slp = 0;	// string length in pixels
+					
+					if (f) {
+						char line[200];
+						
+						int i = 0;
+						while (fgets(line, sizeof line, f) && i < NRATING) {
+							if (line[0] == '#') continue;
+							line[sizeof(line) -1 ] = '\0';
+							trim(line);
+							
+							char *s2 = NULL;
+							char *s1 = strchr(line, ';');
+							if (s1) {
+								*s1++ = '\0';
+								s2 = strchr(s1, ';');
+							}
+							if (NULL == s1 || NULL == s2) {
+								sprintf(log_line, "xgs: ill formed line -> %s\n", line);
+								XPLMDebugString(log_line);
+								break;
+							}
+							
+							s2++;
+							
+							float v_ms = atof(line);
+							float v_fpm = atof(s1);
+							sprintf(log_line, "xgs: %f, %f, <%s>\n", v_ms, v_fpm, s2);
+							XPLMDebugString(log_line);
+							
+							strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
+							int w = ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2)));
+							slp = w > slp ? w : slp;
+							
+							if (v_ms > 0) {
+								acf_rating[i].limit = v_ms;
+							} else if (v_fpm > 0) {
+								acf_rating[i].limit = v_fpm / MS_2_FPM;
+							} else {
+								acf_rating[i].limit = FLT_MAX;
+								break;
+							}
+							i++;
+						}
+						
+						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
+							rating = acf_rating;
+							window_width = 10 + slp;
+
+						} else {
+							XPLMDebugString("xgs: Invalid config file\n");
+						}
+						
+						fclose(f);
+					}
+					
+					
+				}
+			}
+		break;
+	}
 }
 
 void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
@@ -307,7 +391,7 @@ static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
     
     switch (inMouse) {
         case xplm_MouseDown:
-            if ((x >= winPosX + WINDOW_WIDTH - 8) && (x <= winPosX + WINDOW_WIDTH) && 
+            if ((x >= winPosX + window_width - 8) && (x <= winPosX + window_width) && 
                         (y <= winPosY) && (y >= winPosY - 8))
                 windowCloseRequest = 1;
             else {
@@ -320,7 +404,7 @@ static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
             winPosX += x - lastMouseX;
             winPosY += y - lastMouseY;
             XPLMSetWindowGeometry(gWindow, winPosX, winPosY, 
-                    winPosX + WINDOW_WIDTH, winPosY - WINDOW_HEIGHT);
+                    winPosX + window_width, winPosY - WINDOW_HEIGHT);
             lastMouseX = x;
             lastMouseY = y;
             break;
@@ -345,22 +429,14 @@ static int getCurrentState()
 
 static void printLandingMessage(float vy, float g)
 {
-    if (vy < 0.5)
-        sprintf(landMsg[0], "excellent landing");
-    else if (vy < 1.0)
-        sprintf(landMsg[0], "good landing");
-    else if (vy < 1.5)
-        sprintf(landMsg[0], "acceptable landing");
-    else if (vy < 2.0)
-        sprintf(landMsg[0], "hard landing");
-    else if (vy < 2.5)
-        sprintf(landMsg[0], "you are fired!!!");
-    else if (vy < 3.0)
-        sprintf(landMsg[0], "anybody survived?");
-    else
-        sprintf(landMsg[0], "R.I.P.");
+	int i = 0;
+	
+	/* rating terminates with FLT_MAX */
+	while (vy > rating[i].limit) i++;
+	
+    strcpy(landMsg[0], rating[i].txt);
     
-    sprintf(landMsg[1], "Vy: %i fpm", (int)rint(vy * 60.0f * 3.2808f));
+    sprintf(landMsg[1], "Vy: %.0f fpm", vy * MS_2_FPM);
     sprintf(landMsg[2], "Vy: %.3f m/s", vy);
     sprintf(landMsg[3], "G:  %.3f", g);
 
@@ -383,7 +459,10 @@ static void prepareToLog()
     }
     landingTime = time(NULL);
     num = XPLMGetDatab(craftNumRef, logAircraftNum, 0, 49);
-    logAircraftNum[num] = 0;
+    logAircraftNum[num] = '\0';
+	
+	num = XPLMGetDatab(icaoRef, logAircraftIcao, 0, 39);
+    logAircraftIcao[num] = '\0';
     logThisLanding = 1;
 }
 
@@ -414,7 +493,7 @@ static void createEventWindow()
     remainingUpdateTime = 1.0f;
     if (! gWindow)
         gWindow = XPLMCreateWindow(winPosX, winPosY, 
-                    winPosX + WINDOW_WIDTH, winPosY - WINDOW_HEIGHT, 
+                    winPosX + window_width, winPosY - WINDOW_HEIGHT, 
                     1, drawWindowCallback, keyboardCallback, 
                     mouseCallback, NULL);
     if (logEnabled && (! logThisLanding))
