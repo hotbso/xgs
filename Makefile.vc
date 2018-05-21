@@ -1,0 +1,27 @@
+.SUFFIXES: .obj
+
+TARGET=win.xpl
+HEADERS=$(wildcard *.h)
+SOURCES=$(wildcard *.c)
+OBJECTS=$(SOURCES:.c=.obj)
+SDK=f:/games/x-plane\ 10/SDK
+
+CXX=cl
+LD=link
+
+CXXFLAGS+=/EHsc /DWINDOWS /nologo /MT /O2 /GL /DNDEBUG /fp:precise /TP /DWIN32 /I$(SDK)/CHeaders/XPLM /I$(SDK)/CHeaders/Widgets /DIBM=1
+LNFLAGS=/nologo /LTCG /LIBPATH:$(SDK)/Libraries/Win /DLL 
+LIBS=opengl32.lib xplm.lib
+
+all: $(TARGET)
+
+.c.obj:
+	$(CXX) $(CXXFLAGS) -c $<
+	
+$(TARGET): $(OBJECTS)
+	$(LD) /OUT:$(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
+
+clean:
+	rm -f $(OBJECTS) $(TARGET)
+
+

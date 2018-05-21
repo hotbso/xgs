@@ -1,0 +1,27 @@
+SDK=../../SDK
+
+TARGET=mac.xpl
+HEADERS=$(wildcard *.h)
+SOURCES=$(wildcard *.c)
+OBJECTS=$(SOURCES:.c=.o)
+
+OSXC=-arch i386 -mmacosx-version-min=10.7 
+OSXL=-arch i386 -mmacosx-version-min=10.7
+
+DEFS=-DAPL=1 -DLIN=0 -DIBM=0 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -fno-rtti -fno-exceptions -DNDEBUG
+
+CFLAGS+=-Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets $(DEFS) $(OSXC) 
+LNFLAGS+=-undefined warning -flat_namespace -dynamiclib -shared -rdynamic -nodefaultlibs -L/usr/local/lib32  $(OSXL) -fno-rtti -fvisibility=hidden -s -fno-exceptions -Wl,-exported_symbols_list -Wl,linkscript.mac
+LIBS+=
+
+all: $(TARGET)
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+	
+$(TARGET): $(OBJECTS)
+	$(CC) -o $(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
+
+clean:
+	rm -f $(OBJECTS) $(TARGET)
+

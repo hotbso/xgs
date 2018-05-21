@@ -1,0 +1,27 @@
+PLUGINS="/opt/x-plane/X-Plane/Resources/plugins"
+SDK=/opt/x-plane/SDK
+
+TARGET=lin.xpl
+HEADERS=$(wildcard *.h)
+SOURCES=$(wildcard *.c)
+OBJECTS=$(SOURCES:.c=.o)
+
+CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -DLIN=1 -fPIC -m32 -fno-stack-protector
+LNFLAGS=-shared -rdynamic -nodefaultlibs -m32
+LIBS=-L/usr/lib32 #$(PLUGINS)/XPLM.so $(PLUGINS)/XPWidgets.so
+
+all: $(TARGET)
+
+.c.o:
+	$(CC) $(CFLAGS) -c $<
+	
+$(TARGET): $(OBJECTS)
+	$(CC) -o $(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
+
+clean:
+	rm -f $(OBJECTS) $(TARGET)
+
+install: $(TARGET)
+	cp -f $(TARGET) $(PLUGINS)
+
+        
