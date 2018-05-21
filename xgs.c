@@ -22,6 +22,7 @@
 #include <GL/gl.h>
 #endif
 
+#define VERSION "3.0b1"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
@@ -63,15 +64,15 @@ static char logAircraftIcao[40];
 static time_t landingTime;
 
 #define STD_WINDOW_WIDTH 130
-typedef struct rating_ { float limit; char txt[100]; } rating_t;
+typedef struct rating_ { float limit; int w_width; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
-	{0.5, "excellent landing"},
-	{1.0, "good landing"},
-	{1.5, "acceptable landing"},
-	{2.0, "hard landing"},
-	{2.5, "you are fired!!!"},
-	{3.0, "anybody survived?"},
-	{FLT_MAX, "R.I.P."},
+	{0.5, STD_WINDOW_WIDTH, "excellent landing"},
+	{1.0, STD_WINDOW_WIDTH, "good landing"},
+	{1.5, STD_WINDOW_WIDTH, "acceptable landing"},
+	{2.0, STD_WINDOW_WIDTH, "hard landing"},
+	{2.5, STD_WINDOW_WIDTH, "you are fired!!!"},
+	{3.0, STD_WINDOW_WIDTH, "anybody survived?"},
+	{FLT_MAX, STD_WINDOW_WIDTH, "R.I.P."},
 };
 
 #define NRATING 10
@@ -165,7 +166,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     int subMenuItem;
     
     loadConfig();
-    strcpy(outName, "Landing Speed 2.0.2");
+    strcpy(outName, "Landing Speed " VERSION);
     strcpy(outSig, "babichev.landspeed");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
 
@@ -294,7 +295,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 					XPLMDebugString(log_line);
 					
 					FILE *f = fopen(acf_path, "r");
-					int slp = 0;	// string length in pixels
 					
 					if (f) {
 						char line[200];
@@ -324,10 +324,10 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 							sprintf(log_line, "xgs: %f, %f, <%s>\n", v_ms, v_fpm, s2);
 							XPLMDebugString(log_line);
 							
-							strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
-							int w = ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2)));
-							slp = w > slp ? w : slp;
-							
+							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
+							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
+							acf_rating[i].w_width = 10 + ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2)));
+												
 							if (v_ms > 0) {
 								acf_rating[i].limit = v_ms;
 							} else if (v_fpm > 0) {
@@ -341,8 +341,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 						
 						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
 							rating = acf_rating;
-							window_width = 10 + slp;
-
 						} else {
 							XPLMDebugString("xgs: Invalid config file\n");
 						}
@@ -427,7 +425,7 @@ static int getCurrentState()
 }
 
 
-static void printLandingMessage(float vy, float g)
+static int printLandingMessage(float vy, float g)
 {
 	int i = 0;
 	
@@ -435,11 +433,12 @@ static void printLandingMessage(float vy, float g)
 	while (vy > rating[i].limit) i++;
 	
     strcpy(landMsg[0], rating[i].txt);
-    
+
     sprintf(landMsg[1], "Vy: %.0f fpm", vy * MS_2_FPM);
     sprintf(landMsg[2], "Vy: %.3f m/s", vy);
     sprintf(landMsg[3], "G:  %.3f", g);
-
+	
+	return rating[i].w_width;
 }
 
 
@@ -481,8 +480,14 @@ static void updateLandingResult()
         changed = 1;
     }
 
-    if (changed || landMsg[0][0])
-        printLandingMessage(landingSpeed, landingG);
+    if (changed || landMsg[0][0]) {
+        int w = printLandingMessage(landingSpeed, landingG);
+		if (w > window_width) {
+			window_width = w;
+			XPLMSetWindowGeometry(gWindow, winPosX, winPosY, 
+                    winPosX + window_width, winPosY - WINDOW_HEIGHT);
+		}	
+	}
 }
 
 
