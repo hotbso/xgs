@@ -517,24 +517,23 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
         if (windowCloseRequest) {
             windowCloseRequest = 0;
             closeEventWindow();
-        } else
-            if (0.0 < remainingUpdateTime) {
-                updateLandingResult();
-                remainingUpdateTime -= inElapsedSinceLastCall;
-                if (0.0 > remainingUpdateTime)
-                    remainingUpdateTime = 0.0;
-            }
-            if (0.0f < remainingShowTime) {
-                remainingShowTime -= inElapsedSinceLastCall;
-                if (0.0f >= remainingShowTime)
-                    closeEventWindow();
-            }
-    
+        } else if (0.0 < remainingUpdateTime) {
+            updateLandingResult();
+            remainingUpdateTime -= inElapsedSinceLastCall;
+            if (0.0 > remainingUpdateTime)
+                remainingUpdateTime = 0.0;
+        }
+        if (0.0f < remainingShowTime) {
+            remainingShowTime -= inElapsedSinceLastCall;
+            if (0.0f >= remainingShowTime)
+                closeEventWindow();
+        }
+
         if ((STATE_AIR == lastState) && (STATE_LAND == state)) {
             createEventWindow();
         }
     }
-    
+
     lastVSpeed = fabs(XPLMGetDataf(vertSpeedRef));
     lastG = fabs(XPLMGetDataf(gForceRef));
     lastState = state;

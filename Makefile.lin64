@@ -1,13 +1,13 @@
 PLUGINS="/opt/x-plane/X-Plane/Resources/plugins"
-SDK=/opt/x-plane/SDK
+SDK=../SDK
 
 TARGET=lin.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 
-CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -DLIN=1 -fPIC -fno-stack-protector
-LNFLAGS=-shared -rdynamic -nodefaultlibs 
+CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -DLIN=1 -DXPLM200 -fPIC -fno-stack-protector
+LNFLAGS=-shared -rdynamic -nodefaultlibs -undefined_warning
 LIBS= #$(PLUGINS)/XPLM.so $(PLUGINS)/XPWidgets.so
 
 all: $(TARGET)
