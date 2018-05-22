@@ -5,6 +5,7 @@ HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.obj)
 SDK=../SDK
+PLUGDIR=..\xgsbin\xgs
 
 CXX=cl
 LD=link
@@ -22,6 +23,10 @@ $(TARGET): $(OBJECTS)
 	$(LD) /OUT:$(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
 
 clean:
-	rm -f $(OBJECTS) $(TARGET)
-
+	del $(OBJECTS) $(TARGET)
+	
+plugin: $(TARGET)
+	copy win.xpl $(PLUGDIR)\64
+	copy win.xpl $(PLUGDIR)\win_x64\xgs.xpl
+	copy *.cfg $(PLUGDIR)
 
