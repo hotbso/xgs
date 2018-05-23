@@ -36,7 +36,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define WINDOW_HEIGHT 80
 
 static XPLMWindowID gWindow = NULL;
-static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
+static XPLMDataRef yAglRef, vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
 static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
 static char landMsg[4][100];
@@ -82,7 +82,7 @@ static rating_t *rating = std_rating;
 static int window_width = STD_WINDOW_WIDTH;
 
 #ifdef __APPLE__
-int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
+static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
 {
     CFStringRef inStr = CFStringCreateWithCString(kCFAllocatorDefault, inPath, kCFStringEncodingMacRoman);
     if (inStr == NULL) return -1;
@@ -171,6 +171,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
 
     vertSpeedRef = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
+	yAglRef = XPLMFindDataRef("sim/flightmodel/position/y_agl");
     gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
     descrRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
@@ -300,10 +301,24 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 						char line[200];
 						
 						int i = 0;
+						int firstLine = 1;
+						
 						while (fgets(line, sizeof line, f) && i < NRATING) {
 							if (line[0] == '#') continue;
 							line[sizeof(line) -1 ] = '\0';
 							trim(line);
+							if ('\0' == line[0])
+								continue;
+							
+							if (firstLine) {
+								firstLine = 0;
+								if (0 == strcmp(line, "V30")) {
+									continue;	/* the only version currently supported */
+								} else {
+									XPLMDebugString("xgs: Config file does not start with version number\n");
+									break;
+								}
+							}
 							
 							char *s2 = NULL;
 							char *s1 = strchr(line, ';');
@@ -512,12 +527,14 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 {
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
-
+	float loopDelay = 0.05;
+	
     if (3.0 < timeFromStart) {
         if (windowCloseRequest) {
             windowCloseRequest = 0;
             closeEventWindow();
         } else if (0.0 < remainingUpdateTime) {
+			loopDelay = -1.0; /* get high resolution in touch down phase*/
             updateLandingResult();
             remainingUpdateTime -= inElapsedSinceLastCall;
             if (0.0 > remainingUpdateTime)
@@ -529,14 +546,20 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 closeEventWindow();
         }
 
-        if ((STATE_AIR == lastState) && (STATE_LAND == state)) {
-            createEventWindow();
+        if (STATE_AIR == lastState) {
+			float yAgl = XPLMGetDataf(yAglRef);
+			if (yAgl < 1.0)
+				loopDelay = -1.0;
+			
+			if (STATE_LAND == state)
+				createEventWindow();
+			
         }
     }
 
     lastVSpeed = fabs(XPLMGetDataf(vertSpeedRef));
     lastG = fabs(XPLMGetDataf(gForceRef));
     lastState = state;
-    return 0.05f;
+    return loopDelay;
 }
 
