@@ -93,6 +93,11 @@ static airportdb_t airportdb;
 static list_t *near_airports;
 static float arpt_last_reload;
 
+/* will be set on transitioning into the rwy_bbox, if set reloading is paused */
+static const runway_t *landing_rwy;
+static int landing_rwy_end;
+static float landing_cross_height;
+
 #ifdef __APPLE__
 static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
 {
@@ -200,7 +205,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
 	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
-    dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
+    dr_find(&elevation_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
 	
     memset(landMsg, 0, sizeof(landMsg));
@@ -286,6 +291,8 @@ static void closeEventWindow()
     landingG = 0.0f;
     memset(landMsg, 0, sizeof(landMsg));
     remainingShowTime = 0.0f;
+	
+	landing_rwy = NULL;
 }
 
 PLUGIN_API void	XPluginStop(void)
@@ -574,8 +581,12 @@ static void get_near_airports()
 	}
 }
 
-static void nearest_threshold()
+
+static void get_landing_threshold()
 {
+	if (landing_rwy)
+		return;
+	
 	float lat = dr_getf(&lat_dr);
 	float lon = dr_getf(&lon_dr);
 	float hdg = dr_getf(&hdg_dr);
@@ -620,7 +631,11 @@ static void nearest_threshold()
 	}
 		
 	if (in_rwy_bb) {
-		logMsg("Airport: %s, runway: %s, distance: %0.0f\n", min_arpt->icao, min_rwy->ends[min_end].id, thresh_dist_min);
+		landing_rwy = min_rwy;
+		landing_rwy_end = min_end;
+		landing_cross_height = dr_getf(&elevation_dr);
+		logMsg("Airport: %s, runway: %s, height: %0.0f, distance: %0.0f\n",
+			   min_arpt->icao, min_rwy->ends[min_end].id, landing_cross_height, thresh_dist_min);
 	}
 }
 
@@ -633,15 +648,13 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	
-	if (arpt_last_reload + 10.0 < timeFromStart) {
+	if ((NULL == landing_rwy) && (arpt_last_reload + 10.0 < timeFromStart)) {
 		arpt_last_reload = timeFromStart;
 		get_near_airports();
 	}
 	
-	if (last_dist + 2.0 < timeFromStart) {
-		last_dist = timeFromStart;
-		nearest_threshold();
-	}
+	get_landing_threshold();
+
 	
 	float loopDelay = 0.05;
 	
