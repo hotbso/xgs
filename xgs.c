@@ -14,6 +14,9 @@
 #include "XPLMMenus.h"
 #include "XPLMNavigation.h"
 
+#include <acfutils/airportdb.h>
+#include <acfutils/dr.h>
+
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #include <Carbon/Carbon.h>
@@ -39,6 +42,8 @@ static XPLMWindowID gWindow = NULL;
 static XPLMDataRef yAglRef, vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
 static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
+static dr_t lat_dr, lon_dr, elevation_dr;
+
 static char landMsg[4][100];
 static int lastState;
 static float landingSpeed = 0.0f;
@@ -81,6 +86,13 @@ static rating_t acf_rating[NRATING];
 static rating_t *rating = std_rating;
 static int window_width = STD_WINDOW_WIDTH;
 
+static char xpdir[512] = { 0 };
+const char *psep;
+
+static airportdb_t airportdb;
+static list_t *near_airports;
+static float arpt_last_reload;
+
 #ifdef __APPLE__
 static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
 {
@@ -103,7 +115,7 @@ static FILE* getConfigFile(char *mode)
     
     XPLMGetPrefsPath(path);
     XPLMExtractFileAndPath(path);
-    strcat(path, XPLMGetDirectorySeparator());
+    strcat(path, psep);
     strcat(path, "xgs.prf");
 
 #ifdef __APPLE__
@@ -164,7 +176,14 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
     XPLMMenuID pluginsMenu;
     int subMenuItem;
-    
+	
+ 	/* Always use Unix-native paths on the Mac! */
+	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+	log_init(XPLMDebugString, "xgs");
+	
+    psep = XPLMGetDirectorySeparator();
+	XPLMGetSystemPath(xpdir);
+	
     loadConfig();
     strcpy(outName, "Landing Speed " VERSION);
     strcpy(outSig, "babichev.landspeed");
@@ -176,11 +195,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
     descrRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
 	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-    latRef = XPLMFindDataRef("sim/flightmodel/position/latitude");
-    longRef = XPLMFindDataRef("sim/flightmodel/position/longitude");
     craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
     gForceRef = XPLMFindDataRef("sim/flightmodel2/misc/gforce_normal");
-    
+
+	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
+    dr_find(&lon_dr, "sim/flightmodel/position/longitude");
+    dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
+
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
     
@@ -191,7 +212,18 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
     updateLogItemState();
     
+	char cache_path[512];
+	sprintf(cache_path, "%s%s%s%s%s%s%s", xpdir, psep, "Output", psep, "caches", psep, "XGS.cache");
+	airportdb_create(&airportdb, xpdir, cache_path);
+	if (!recreate_cache(&airportdb)) {
+		logMsg("recreate_cache failed\n");
+		goto error;
+	}
+	
     return 1;
+	
+	error:
+	return 0;
 }
 
 
@@ -286,7 +318,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 				rating = std_rating;
 				window_width = STD_WINDOW_WIDTH;
 				
-				const char *psep = XPLMGetDirectorySeparator();
 				XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, acf_path);
 				
 				char *s = strrchr(acf_path, psep[0]);
@@ -365,6 +396,8 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 					
 					
 				}
+			
+					
 			}
 		break;
 	}
@@ -460,8 +493,8 @@ static int printLandingMessage(float vy, float g)
 static void prepareToLog()
 {
     int num;
-    float lat = XPLMGetDataf(latRef);
-    float lon = XPLMGetDataf(longRef);
+    float lat = dr_getf(&lat_dr);
+    float lon = dr_getf(&lon_dr);
     XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL, xplm_Nav_Airport);
     
     if (XPLM_NAV_NOT_FOUND != ref)
@@ -520,6 +553,25 @@ static void createEventWindow()
         prepareToLog();
 }
 
+static void get_near_airports()
+{
+	if (near_airports)
+		free_nearest_airport_list(near_airports);
+	
+	geo_pos2_t my_pos;
+	my_pos = GEO_POS2(dr_getf(&lat_dr), dr_getf(&lon_dr));
+	load_nearest_airport_tiles(&airportdb, my_pos);
+	unload_distant_airport_tiles(&airportdb, my_pos);
+
+	near_airports = find_nearest_airports(&airportdb, my_pos);
+	if (near_airports) {
+		const airport_t *arpt = list_head(near_airports);
+
+		if (arpt) {
+			logMsg("nearest airport: %s\n", arpt->icao);
+		}
+	}
+}
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
@@ -527,6 +579,12 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 {
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
+	
+	if (arpt_last_reload + 10.0 < timeFromStart) {
+		arpt_last_reload = timeFromStart;
+		get_near_airports();
+	}
+	
 	float loopDelay = 0.05;
 	
     if (3.0 < timeFromStart) {
