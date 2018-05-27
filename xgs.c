@@ -42,7 +42,7 @@ static XPLMWindowID gWindow = NULL;
 static XPLMDataRef yAglRef, vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
 static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
-static dr_t lat_dr, lon_dr, elevation_dr, hdg_dr;
+static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr;
 
 static char landMsg[4][100];
 static int lastState;
@@ -95,8 +95,11 @@ static float arpt_last_reload;
 
 /* will be set on transitioning into the rwy_bbox, if set reloading is paused */
 static const runway_t *landing_rwy;
-static int landing_rwy_end;
+static const runway_end_t *landing_rwy_end;
 static float landing_cross_height;
+
+static float thresh_dist_data;
+static dr_t thresh_dist_dr, landing_cross_dr;
 
 #ifdef __APPLE__
 static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
@@ -205,9 +208,12 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
 	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
-    dr_find(&elevation_dr, "sim/flightmodel/position/y_agl");
+    dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
 	
+	dr_create_f(&landing_cross_dr, (float *)&landing_cross_height, B_FALSE, "xgs/info/landing_cross_height");
+	dr_create_f(&thresh_dist_dr, (float *)&thresh_dist_data, B_FALSE, "xgs/info/thresh_dist");
+
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
     
@@ -581,17 +587,19 @@ static void get_near_airports()
 	}
 }
 
+double thresh_dist_min;
 
 static void get_landing_threshold()
 {
 	if (landing_rwy)
 		return;
 	
+	thresh_dist_min = 1.0E12;
+	
 	float lat = dr_getf(&lat_dr);
 	float lon = dr_getf(&lon_dr);
 	float hdg = dr_getf(&hdg_dr);
-	
-	double thresh_dist_min = 1.0E12;
+
 	int in_rwy_bb = 0;
 	const airport_t *min_arpt;
 	const runway_t *min_rwy;
@@ -609,7 +617,7 @@ static void get_landing_threshold()
 		for (const runway_t *rwy = avl_first(&arpt->rwys); rwy != NULL;
 			rwy = AVL_NEXT(&arpt->rwys, rwy)) {
 			
-			if (point_in_poly(pos_v, rwy->asda_bbox)) {
+			if (point_in_poly(pos_v, rwy->rwy_bbox)) {
 				for (int e = 0; e <=1; e++) {
 					const runway_end_t *rwy_end = &rwy->ends[e];
 					double rhdg = fabs(rel_hdg(hdg, rwy_end->hdg));
@@ -632,10 +640,10 @@ static void get_landing_threshold()
 		
 	if (in_rwy_bb) {
 		landing_rwy = min_rwy;
-		landing_rwy_end = min_end;
-		landing_cross_height = dr_getf(&elevation_dr);
+		landing_rwy_end = &landing_rwy->ends[min_end];
+		landing_cross_height = dr_getf(&y_agl_dr);
 		logMsg("Airport: %s, runway: %s, height: %0.0f, distance: %0.0f\n",
-			   min_arpt->icao, min_rwy->ends[min_end].id, landing_cross_height, thresh_dist_min);
+			   min_arpt->icao, landing_rwy_end->id, landing_cross_height, thresh_dist_min);
 	}
 }
 
@@ -652,8 +660,21 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 		arpt_last_reload = timeFromStart;
 		get_near_airports();
 	}
-	
-	get_landing_threshold();
+
+	if (NULL == landing_rwy) {
+		get_landing_threshold();
+	} else {
+		float lat = dr_getf(&lat_dr);
+		float lon = dr_getf(&lon_dr);
+		
+		vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+		double dist = vect2_abs(vect2_sub(landing_rwy_end->dthr_v, pos_v));
+		thresh_dist_data = dist;
+		if (dist < thresh_dist_min) {
+			thresh_dist_min = dist;
+			landing_cross_height = dr_getf(&y_agl_dr);
+		}
+	}		
 
 	
 	float loopDelay = 0.05;
