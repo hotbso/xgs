@@ -42,7 +42,7 @@ static XPLMWindowID gWindow = NULL;
 static XPLMDataRef yAglRef, vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
 static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
-static dr_t lat_dr, lon_dr, elevation_dr;
+static dr_t lat_dr, lon_dr, elevation_dr, hdg_dr;
 
 static char landMsg[4][100];
 static int lastState;
@@ -201,7 +201,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
     dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
-
+	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
+	
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
     
@@ -573,6 +574,58 @@ static void get_near_airports()
 	}
 }
 
+static void nearest_threshold()
+{
+	float lat = dr_getf(&lat_dr);
+	float lon = dr_getf(&lon_dr);
+	float hdg = dr_getf(&hdg_dr);
+	
+	double thresh_dist_min = 1.0E12;
+	int in_rwy_bb = 0;
+	const airport_t *min_arpt;
+	const runway_t *min_rwy;
+	int min_end;
+	
+	if (NULL == near_airports)
+		return;
+	
+	for (const airport_t *arpt = list_head(near_airports);
+		arpt != NULL; arpt = list_next(near_airports, arpt)) {
+		ASSERT(arpt->load_complete);
+		
+		vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &arpt->fpp);
+		
+		for (const runway_t *rwy = avl_first(&arpt->rwys); rwy != NULL;
+			rwy = AVL_NEXT(&arpt->rwys, rwy)) {
+			
+			if (point_in_poly(pos_v, rwy->asda_bbox)) {
+				for (int e = 0; e <=1; e++) {
+					const runway_end_t *rwy_end = &rwy->ends[e];
+					double rhdg = fabs(rel_hdg(hdg, rwy_end->hdg));
+					if (rhdg > 20)
+						continue;
+					
+					vect2_t thr_v = rwy_end->dthr_v;
+					double dist = vect2_abs(vect2_sub(thr_v, pos_v));
+					if (dist < thresh_dist_min) {
+						thresh_dist_min = dist;
+						in_rwy_bb = 1;
+						min_arpt = arpt;
+						min_rwy = rwy;
+						min_end = e;
+					}
+				}
+			}
+		}
+	}
+		
+	if (in_rwy_bb) {
+		logMsg("Airport: %s, runway: %s, distance: %0.0f\n", min_arpt->icao, min_rwy->ends[min_end].id, thresh_dist_min);
+	}
+}
+
+static float last_dist;
+
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
                 void *inRefcon)
@@ -583,6 +636,11 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	if (arpt_last_reload + 10.0 < timeFromStart) {
 		arpt_last_reload = timeFromStart;
 		get_near_airports();
+	}
+	
+	if (last_dist + 2.0 < timeFromStart) {
+		last_dist = timeFromStart;
+		nearest_threshold();
 	}
 	
 	float loopDelay = 0.05;
