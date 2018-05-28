@@ -32,19 +32,20 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 void *inRefcon);
                 
 #define MS_2_FPM 196.850
-
+#define M_2_FT 3.2808
 #define STATE_LAND 1
 #define STATE_AIR 2
 
-#define WINDOW_HEIGHT 80
+#define WINDOW_HEIGHT 110
+#define STD_WINDOW_WIDTH 165
 
 static XPLMWindowID gWindow = NULL;
-static XPLMDataRef yAglRef, vertSpeedRef, gearKoofRef, flightTimeRef, descrRef;
-static XPLMDataRef longRef, latRef, craftNumRef, icaoRef;
+static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef;
+static XPLMDataRef craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr;
 
-static char landMsg[4][100];
+static char landMsg[6][100];
 static int lastState;
 static float landingSpeed = 0.0f;
 static float lastVSpeed = 0.0f;
@@ -68,7 +69,7 @@ static char logAircraftNum[50];
 static char logAircraftIcao[40];
 static time_t landingTime;
 
-#define STD_WINDOW_WIDTH 130
+
 typedef struct rating_ { float limit; int w_width; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
 	{0.5, STD_WINDOW_WIDTH, "excellent landing"},
@@ -97,6 +98,9 @@ static float arpt_last_reload;
 static const runway_t *landing_rwy;
 static const runway_end_t *landing_rwy_end;
 static float landing_cross_height;
+static float landing_dist;
+
+static double thresh_dist_min;
 
 static float thresh_dist_data;
 static dr_t thresh_dist_dr, landing_cross_dr;
@@ -198,10 +202,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
 
     vertSpeedRef = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
-	yAglRef = XPLMFindDataRef("sim/flightmodel/position/y_agl");
     gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
-    descrRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
 	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
     gForceRef = XPLMFindDataRef("sim/flightmodel2/misc/gforce_normal");
@@ -210,9 +212,11 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
     dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-	
+
+#if 0	
 	dr_create_f(&landing_cross_dr, (float *)&landing_cross_height, B_FALSE, "xgs/info/landing_cross_height");
 	dr_create_f(&thresh_dist_dr, (float *)&thresh_dist_data, B_FALSE, "xgs/info/thresh_dist");
+#endif
 
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
@@ -386,7 +390,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 							
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
 							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
-							acf_rating[i].w_width = 10 + ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2)));
+							acf_rating[i].w_width = (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2))));
 												
 							if (v_ms > 0) {
 								acf_rating[i].limit = v_ms;
@@ -427,12 +431,12 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
             
         XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
         XPLMDrawTranslucentDarkBox(left, top, right, bottom);
-        for (i = 0; i < 4; i++)
+        for (i = 0; i < 6; i++)
             XPLMDrawString(color, left + 5, top - 20 - i*15, 
                     landMsg[i], NULL, xplmFont_Basic);
         
         glDisable(GL_TEXTURE_2D);
-        glColor3f(0.7, 0.7, 0.7);
+        glColor3f(0.7f, 0.7f, 0.7f);
         glBegin(GL_LINES);
           glVertex2i(right - 1, top - 1);
           glVertex2i(right - 7, top - 7);
@@ -491,15 +495,19 @@ static int printLandingMessage(float vy, float g)
 {
 	int i = 0;
 	
+	ASSERT(NULL != landing_rwy);
+	
 	/* rating terminates with FLT_MAX */
 	while (vy > rating[i].limit) i++;
 	
     strcpy(landMsg[0], rating[i].txt);
 
-    sprintf(landMsg[1], "Vy: %.0f fpm", vy * MS_2_FPM);
-    sprintf(landMsg[2], "Vy: %.3f m/s", vy);
-    sprintf(landMsg[3], "G:  %.3f", g);
-	
+    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
+    sprintf(landMsg[2], "G:  %.3f m/s²", g);
+	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy_end->id);
+    sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
+    sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+
 	return rating[i].w_width;
 }
 
@@ -587,7 +595,7 @@ static void get_near_airports()
 	}
 }
 
-double thresh_dist_min;
+
 
 static void get_landing_threshold()
 {
@@ -595,7 +603,7 @@ static void get_landing_threshold()
 		return;
 	
 	thresh_dist_min = 1.0E12;
-	
+
 	float lat = dr_getf(&lat_dr);
 	float lon = dr_getf(&lon_dr);
 	float hdg = dr_getf(&hdg_dr);
@@ -647,7 +655,6 @@ static void get_landing_threshold()
 	}
 }
 
-static float last_dist;
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
@@ -656,28 +663,34 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	
-	if ((NULL == landing_rwy) && (arpt_last_reload + 10.0 < timeFromStart)) {
-		arpt_last_reload = timeFromStart;
-		get_near_airports();
-	}
-
-	if (NULL == landing_rwy) {
-		get_landing_threshold();
-	} else {
-		float lat = dr_getf(&lat_dr);
-		float lon = dr_getf(&lon_dr);
-		
-		vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-		double dist = vect2_abs(vect2_sub(landing_rwy_end->dthr_v, pos_v));
-		thresh_dist_data = dist;
-		if (dist < thresh_dist_min) {
-			thresh_dist_min = dist;
-			landing_cross_height = dr_getf(&y_agl_dr);
+	float height = dr_getf(&y_agl_dr);
+	
+	if (height < 150 && STATE_AIR == state) {
+		if ((NULL == landing_rwy) && (arpt_last_reload + 10.0 < timeFromStart)) {
+			arpt_last_reload = timeFromStart;
+			get_near_airports();
 		}
+
+		if (NULL == landing_rwy) {
+			get_landing_threshold();
+		} else {
+			float lat = dr_getf(&lat_dr);
+			float lon = dr_getf(&lon_dr);
+			
+			vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+			double dist = vect2_abs(vect2_sub(landing_rwy_end->dthr_v, pos_v));
+			thresh_dist_data = dist;
+			if (dist < thresh_dist_min) {
+				thresh_dist_min = dist;
+				landing_cross_height = dr_getf(&y_agl_dr);
+			} else {
+				landing_dist = dist;
+			}
+		}	
 	}		
 
 	
-	float loopDelay = 0.05;
+	float loopDelay = 0.05f;
 	
     if (3.0 < timeFromStart) {
         if (windowCloseRequest) {
@@ -697,13 +710,12 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
         }
 
         if (STATE_AIR == lastState) {
-			float yAgl = XPLMGetDataf(yAglRef);
+			float yAgl = dr_getf(&y_agl_dr);
 			if (yAgl < 1.0)
 				loopDelay = -1.0;
 			
 			if (STATE_LAND == state)
 				createEventWindow();
-			
         }
     }
 
