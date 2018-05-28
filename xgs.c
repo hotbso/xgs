@@ -577,6 +577,8 @@ static void createEventWindow()
 
 static void get_near_airports()
 {
+	ASSERT(NULL == landing_rwy);
+	
 	if (near_airports)
 		free_nearest_airport_list(near_airports);
 	
@@ -595,10 +597,13 @@ static void get_near_airports()
 	}
 }
 
-
-
-static void get_landing_threshold()
+/*
+ * Catch the transition into the rwy_bbox of the nearest threshold.
+ *
+ */
+static void fix_landing_rwy()
 {
+	/* have it already */
 	if (landing_rwy)
 		return;
 	
@@ -613,9 +618,9 @@ static void get_landing_threshold()
 	const runway_t *min_rwy;
 	int min_end;
 	
-	if (NULL == near_airports)
-		return;
+	ASSERT(NULL != near_airports);
 	
+	/* loop over all runway ends */
 	for (const airport_t *arpt = list_head(near_airports);
 		arpt != NULL; arpt = list_next(near_airports, arpt)) {
 		ASSERT(arpt->load_complete);
@@ -650,8 +655,8 @@ static void get_landing_threshold()
 		landing_rwy = min_rwy;
 		landing_rwy_end = &landing_rwy->ends[min_end];
 		landing_cross_height = dr_getf(&y_agl_dr);
-		logMsg("Airport: %s, runway: %s, height: %0.0f, distance: %0.0f\n",
-			   min_arpt->icao, landing_rwy_end->id, landing_cross_height, thresh_dist_min);
+		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f\n",
+			   min_arpt->icao, landing_rwy_end->id, thresh_dist_min);
 	}
 }
 
@@ -666,13 +671,15 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	float height = dr_getf(&y_agl_dr);
 	
 	if (height < 150 && STATE_AIR == state) {
-		if ((NULL == landing_rwy) && (arpt_last_reload + 10.0 < timeFromStart)) {
-			arpt_last_reload = timeFromStart;
-			get_near_airports();
-		}
 
 		if (NULL == landing_rwy) {
-			get_landing_threshold();
+			if (arpt_last_reload + 10.0 < timeFromStart) {
+				arpt_last_reload = timeFromStart;
+				get_near_airports();
+			}
+			
+			if (NULL != near_airports)
+					fix_landing_rwy();
 		} else {
 			float lat = dr_getf(&lat_dr);
 			float lon = dr_getf(&lon_dr);
