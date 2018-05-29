@@ -25,7 +25,7 @@
 #include <GL/gl.h>
 #endif
 
-#define VERSION "3.0b1"
+#define VERSION "3.0b2"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
@@ -37,7 +37,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define STATE_AIR 2
 
 #define WINDOW_HEIGHT 125
-#define STD_WINDOW_WIDTH 165
+#define STD_WINDOW_WIDTH 180
 
 static XPLMWindowID gWindow = NULL;
 static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef;
@@ -94,16 +94,13 @@ static airportdb_t airportdb;
 static list_t *near_airports;
 static float arpt_last_reload;
 
-/* will be set on transitioning into the rwy_bbox, if set reloading is paused */
+/* will be set on transitioning into the rwy_bbox, if set then reloading is paused */
 static const runway_t *landing_rwy;
 static int landing_rwy_end;
 static double landing_cross_height;
 static double landing_dist = -1;
-static double landing_deviation;
+static double landing_cl_delta, landing_cl_angle;
 
-static double thresh_dist_min;
-
-static dr_t thresh_dist_dr, landing_cross_dr;
 
 #ifdef __APPLE__
 static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
@@ -198,7 +195,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 	
     loadConfig();
     strcpy(outName, "Landing Speed " VERSION);
-    strcpy(outSig, "babichev.landspeed");
+    strcpy(outSig, "babichev.landspeed - hotbso");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
 
     vertSpeedRef = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
@@ -503,7 +500,8 @@ static int printLandingMessage(float vy, float g)
 	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
     sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
     sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
-    sprintf(landMsg[6], "from CL:  %.f ft / %.f m", landing_deviation * M_2_FT, landing_deviation);
+    sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
+						landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
 
 	return rating[i].w_width;
 }
@@ -597,7 +595,7 @@ static void fix_landing_rwy()
 	if (landing_rwy)
 		return;
 	
-	thresh_dist_min = 1.0E12;
+	double thresh_dist_min = 1.0E12;
 
 	float lat = dr_getf(&lat_dr);
 	float lon = dr_getf(&lon_dr);
@@ -706,10 +704,9 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			if (yAgl < 1.0)
 				loop_delay = -1.0;
 			
-			/* catch only first TD, i.e. no bouncing */
-			if (STATE_LAND == state && landing_dist <= 0) {
-				ASSERT(NULL != landing_rwy);
-				
+			/* catch only first TD, i.e. no bouncing,
+			   landing_rwy can be NULL here after a teleportation */
+			if (STATE_LAND == state && landing_dist <= 0 && NULL != landing_rwy) {
 				float lat = dr_getf(&lat_dr);
 				float lon = dr_getf(&lon_dr);
 				
@@ -729,10 +726,13 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 					vect2_t dev_v = vect2_sub(my_v, p_v);
 					
 					/* get signed deviation, + -> right, - -> left */
-					landing_deviation = vect2_abs(dev_v);
+					landing_cl_delta = vect2_abs(dev_v);
 					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
 					/* by sign of cross product */
-					landing_deviation = xprod_z > 0 ? landing_deviation : -landing_deviation;
+					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+					
+					/* angle between cl and my heading */
+					landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
 				}
 				
 				createEventWindow();
