@@ -96,13 +96,12 @@ static float arpt_last_reload;
 
 /* will be set on transitioning into the rwy_bbox, if set reloading is paused */
 static const runway_t *landing_rwy;
-static const runway_end_t *landing_rwy_end;
+static int landing_rwy_end;
 static float landing_cross_height;
 static float landing_dist;
 
 static double thresh_dist_min;
 
-static float thresh_dist_data;
 static dr_t thresh_dist_dr, landing_cross_dr;
 
 #ifdef __APPLE__
@@ -212,11 +211,6 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
     dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-
-#if 0	
-	dr_create_f(&landing_cross_dr, (float *)&landing_cross_height, B_FALSE, "xgs/info/landing_cross_height");
-	dr_create_f(&thresh_dist_dr, (float *)&thresh_dist_data, B_FALSE, "xgs/info/thresh_dist");
-#endif
 
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
@@ -504,7 +498,7 @@ static int printLandingMessage(float vy, float g)
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
     sprintf(landMsg[2], "G:  %.3f m/s²", g);
-	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy_end->id);
+	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
     sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
     sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
 
@@ -588,13 +582,6 @@ static void get_near_airports()
 	unload_distant_airport_tiles(&airportdb, my_pos);
 
 	near_airports = find_nearest_airports(&airportdb, my_pos);
-	if (near_airports) {
-		const airport_t *arpt = list_head(near_airports);
-
-		if (arpt) {
-			logMsg("nearest airport: %s\n", arpt->icao);
-		}
-	}
 }
 
 /*
@@ -653,10 +640,10 @@ static void fix_landing_rwy()
 		
 	if (in_rwy_bb) {
 		landing_rwy = min_rwy;
-		landing_rwy_end = &landing_rwy->ends[min_end];
+		landing_rwy_end = min_end;
 		landing_cross_height = dr_getf(&y_agl_dr);
 		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f\n",
-			   min_arpt->icao, landing_rwy_end->id, thresh_dist_min);
+			   min_arpt->icao, landing_rwy->ends[landing_rwy_end].id, thresh_dist_min);
 	}
 }
 
@@ -667,6 +654,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 {
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
+	float loop_delay = 0.05f;
 	
 	float height = dr_getf(&y_agl_dr);
 	
@@ -678,33 +666,22 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 				get_near_airports();
 			}
 			
-			if (NULL != near_airports)
-					fix_landing_rwy();
-		} else {
-			float lat = dr_getf(&lat_dr);
-			float lon = dr_getf(&lon_dr);
-			
-			vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-			double dist = vect2_abs(vect2_sub(landing_rwy_end->dthr_v, pos_v));
-			thresh_dist_data = dist;
-			if (dist < thresh_dist_min) {
-				thresh_dist_min = dist;
-				landing_cross_height = dr_getf(&y_agl_dr);
-			} else {
-				landing_dist = dist;
+			if (NULL != near_airports) {
+				loop_delay = 0.1;		/* increase resolution */
+				fix_landing_rwy();
 			}
-		}	
+		}
 	}		
 
 	
-	float loopDelay = 0.05f;
+	
 	
     if (3.0 < timeFromStart) {
         if (windowCloseRequest) {
             windowCloseRequest = 0;
             closeEventWindow();
         } else if (0.0 < remainingUpdateTime) {
-			loopDelay = -1.0; /* get high resolution in touch down phase*/
+			loop_delay = -1.0; /* get high resolution in touch down phase*/
             updateLandingResult();
             remainingUpdateTime -= inElapsedSinceLastCall;
             if (0.0 > remainingUpdateTime)
@@ -719,16 +696,27 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
         if (STATE_AIR == lastState) {
 			float yAgl = dr_getf(&y_agl_dr);
 			if (yAgl < 1.0)
-				loopDelay = -1.0;
+				loop_delay = -1.0;
 			
-			if (STATE_LAND == state)
+			if (STATE_LAND == state) {
+				ASSERT(NULL != landing_rwy);
+				
+				float lat = dr_getf(&lat_dr);
+				float lon = dr_getf(&lon_dr);
+				
+				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
+				double dist = vect2_abs(vect2_sub(near_end->dthr_v, pos_v));
+				landing_dist = dist;
+
 				createEventWindow();
+			}
         }
     }
 
     lastVSpeed = fabs(XPLMGetDataf(vertSpeedRef));
     lastG = fabs(XPLMGetDataf(gForceRef));
     lastState = state;
-    return loopDelay;
+    return loop_delay;
 }
 
