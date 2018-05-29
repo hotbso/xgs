@@ -36,7 +36,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define STATE_LAND 1
 #define STATE_AIR 2
 
-#define WINDOW_HEIGHT 110
+#define WINDOW_HEIGHT 125
 #define STD_WINDOW_WIDTH 165
 
 static XPLMWindowID gWindow = NULL;
@@ -45,7 +45,7 @@ static XPLMDataRef craftNumRef, icaoRef;
 static XPLMDataRef gForceRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr;
 
-static char landMsg[6][100];
+static char landMsg[7][100];
 static int lastState;
 static float landingSpeed = 0.0f;
 static float lastVSpeed = 0.0f;
@@ -97,8 +97,9 @@ static float arpt_last_reload;
 /* will be set on transitioning into the rwy_bbox, if set reloading is paused */
 static const runway_t *landing_rwy;
 static int landing_rwy_end;
-static float landing_cross_height;
-static float landing_dist;
+static double landing_cross_height;
+static double landing_dist = -1;
+static double landing_deviation;
 
 static double thresh_dist_min;
 
@@ -297,6 +298,7 @@ static void closeEventWindow()
     remainingShowTime = 0.0f;
 	
 	landing_rwy = NULL;
+	landing_dist = -1;
 }
 
 PLUGIN_API void	XPluginStop(void)
@@ -425,7 +427,7 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
             
         XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
         XPLMDrawTranslucentDarkBox(left, top, right, bottom);
-        for (i = 0; i < 6; i++)
+        for (i = 0; i < 7; i++)
             XPLMDrawString(color, left + 5, top - 20 - i*15, 
                     landMsg[i], NULL, xplmFont_Basic);
         
@@ -501,6 +503,7 @@ static int printLandingMessage(float vy, float g)
 	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
     sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
     sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+    sprintf(landMsg[6], "from CL:  %.f ft / %.f m", landing_deviation * M_2_FT, landing_deviation);
 
 	return rating[i].w_width;
 }
@@ -657,24 +660,29 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	float loop_delay = 0.05f;
 	
 	float height = dr_getf(&y_agl_dr);
-	
-	if (height < 150 && STATE_AIR == state) {
 
-		if (NULL == landing_rwy) {
-			if (arpt_last_reload + 10.0 < timeFromStart) {
-				arpt_last_reload = timeFromStart;
-				get_near_airports();
+	if (STATE_AIR == state) {
+		
+		/* low, alert mode */
+		if (height < 150) {
+			if (NULL == landing_rwy) {
+				if (arpt_last_reload + 10.0 < timeFromStart) {
+					arpt_last_reload = timeFromStart;
+					get_near_airports();
+				}
+				
+				if (NULL != near_airports) {
+					loop_delay = 0.01f;		/* increase resolution */
+					fix_landing_rwy();
+				}
 			}
-			
-			if (NULL != near_airports) {
-				loop_delay = 0.1;		/* increase resolution */
-				fix_landing_rwy();
-			}
+		} else if (height > 200) {
+			landing_rwy = NULL;		/* may a go around */
 		}
-	}		
-
-	
-	
+		
+		if (height > 500)
+			loop_delay = 1.0f;		/* we can be lazy */
+	}
 	
     if (3.0 < timeFromStart) {
         if (windowCloseRequest) {
@@ -698,7 +706,8 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			if (yAgl < 1.0)
 				loop_delay = -1.0;
 			
-			if (STATE_LAND == state) {
+			/* catch only first TD, i.e. no bouncing */
+			if (STATE_LAND == state && landing_dist <= 0) {
 				ASSERT(NULL != landing_rwy);
 				
 				float lat = dr_getf(&lat_dr);
@@ -706,9 +715,26 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 				
 				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
 				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
-				double dist = vect2_abs(vect2_sub(near_end->dthr_v, pos_v));
-				landing_dist = dist;
-
+				const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
+			
+				vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
+				vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+				landing_dist = vect2_abs(my_v);
+				double cl_len = vect2_abs(center_line_v);
+				if (cl_len > 0) {
+					vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
+				
+					double dprod = vect2_dotprod(cl_unit_v, my_v);
+					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
+					vect2_t dev_v = vect2_sub(my_v, p_v);
+					
+					/* get signed deviation, + -> right, - -> left */
+					landing_deviation = vect2_abs(dev_v);
+					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
+					/* by sign of cross product */
+					landing_deviation = xprod_z > 0 ? landing_deviation : -landing_deviation;
+				}
+				
 				createEventWindow();
 			}
         }
