@@ -1,0 +1,37 @@
+.SUFFIXES: .obj
+
+TARGET=win.xpl
+HEADERS=$(wildcard *.h)
+SOURCES=$(wildcard *.c)
+OBJECTS=$(SOURCES:.c=.o)
+SDK=../SDK
+ACFUT=../libacfutils-redist
+PLUGDIR=..\xgsbin\xgs
+
+CC=gcc
+LD=gcc
+
+CFLAGS+=-mdll -g0 -O2 -s -Wall -DWINDOWS -DWIN32 \
+	-IGL_for_Windows/include -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DIBM=1 -DXPLM200
+
+LDFLAGS=-shared -static-libgcc -static -lpthread
+#LIBS=$(ACFUT)/win64/lib/acfutils.lib GL_for_Windows/lib/opengl32.lib -L$(SDK)/Libraries/Win -lxplm_64 -lxpwidgets_64
+LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lxplm_64 -lxpwidgets_64 -lopengl32
+
+
+all: $(TARGET)
+
+.c.obj:
+	$(CC) $(CFLAGS) -c $<
+	
+$(TARGET): $(OBJECTS)
+	$(LD) -o $(TARGET) $(LDFLAGS) $(OBJECTS) $(LIBS)
+
+clean:
+	rm $(OBJECTS) $(TARGET)
+	
+plugin: $(TARGET)
+	copy win.xpl $(PLUGDIR)\64
+	copy win.xpl $(PLUGDIR)\win_x64\xgs.xpl
+	copy *.cfg $(PLUGDIR)
+
