@@ -324,7 +324,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 			if (inParam == 0) {
 				char acf_path[512];
 				char acf_file[256];
-				char log_line[1024];
 				
 				rating = std_rating;
 				window_width = STD_WINDOW_WIDTH;
@@ -334,8 +333,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 				char *s = strrchr(acf_path, psep[0]);
 				if (NULL != s) {
 					strcpy(s+1, "xgs_rating.cfg");
-					sprintf(log_line, "xgs: trying config file %s\n", acf_path);
-					XPLMDebugString(log_line);
+					logMsg("trying config file %s\n", acf_path);
 					
 					FILE *f = fopen(acf_path, "r");
 					
@@ -357,7 +355,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 								if (0 == strcmp(line, "V30")) {
 									continue;	/* the only version currently supported */
 								} else {
-									XPLMDebugString("xgs: Config file does not start with version number\n");
+									logMsg("Config file does not start with version number\n");
 									break;
 								}
 							}
@@ -369,8 +367,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 								s2 = strchr(s1, ';');
 							}
 							if (NULL == s1 || NULL == s2) {
-								sprintf(log_line, "xgs: ill formed line -> %s\n", line);
-								XPLMDebugString(log_line);
+								logMsg("ill formed line -> %s\n", line);
 								break;
 							}
 							
@@ -378,8 +375,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 							
 							float v_ms = atof(line);
 							float v_fpm = atof(s1);
-							sprintf(log_line, "xgs: %f, %f, <%s>\n", v_ms, v_fpm, s2);
-							XPLMDebugString(log_line);
+							logMsg("%f, %f, <%s>\n", v_ms, v_fpm, s2);
 							
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
 							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
@@ -399,7 +395,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
 							rating = acf_rating;
 						} else {
-							XPLMDebugString("xgs: Invalid config file\n");
+							logMsg("Invalid config file\n");
 						}
 						
 						fclose(f);
