@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <time.h>
+#include <sys/param.h>
 #include "XPLMPlugin.h"
 #include "XPLMPlanes.h"
 #include "XPLMDisplay.h"
@@ -70,15 +71,15 @@ static char logAircraftIcao[40];
 static time_t landingTime;
 
 
-typedef struct rating_ { float limit; int w_width; char txt[100]; } rating_t;
+typedef struct rating_ { float limit; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
-	{0.5, STD_WINDOW_WIDTH, "excellent landing"},
-	{1.0, STD_WINDOW_WIDTH, "good landing"},
-	{1.5, STD_WINDOW_WIDTH, "acceptable landing"},
-	{2.0, STD_WINDOW_WIDTH, "hard landing"},
-	{2.5, STD_WINDOW_WIDTH, "you are fired!!!"},
-	{3.0, STD_WINDOW_WIDTH, "anybody survived?"},
-	{FLT_MAX, STD_WINDOW_WIDTH, "R.I.P."},
+	{0.5, "excellent landing"},
+	{1.0, "good landing"},
+	{1.5, "acceptable landing"},
+	{2.0, "hard landing"},
+	{2.5, "you are fired!!!"},
+	{3.0, "anybody survived?"},
+	{FLT_MAX, "R.I.P."},
 };
 
 #define NRATING 10
@@ -206,7 +207,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 	
     return 1;
 	
-	error:
+  error:
 	return 0;
 }
 
@@ -348,7 +349,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 							
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
 							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
-							acf_rating[i].w_width = (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, s2, strlen(s2))));
 												
 							if (v_ms > 0) {
 								acf_rating[i].limit = v_ms;
@@ -455,14 +455,16 @@ static int getCurrentState()
 
 static int printLandingMessage(float vy, float g)
 {
-	int i = 0;
-	
 	ASSERT(NULL != landing_rwy);
-	
+
+	int w_width = STD_WINDOW_WIDTH;
+		
 	/* rating terminates with FLT_MAX */
+	int i = 0;
 	while (vy > rating[i].limit) i++;
 	
     strcpy(landMsg[0], rating[i].txt);
+	w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
     sprintf(landMsg[2], "G:  %.3f m/s²", g);
@@ -472,12 +474,14 @@ static int printLandingMessage(float vy, float g)
 		sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
 		sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
 							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
+		w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[6], strlen(landMsg[6])))));
+
 	} else {
 		strcpy(landMsg[3], "Not on a runway!");
 		landMsg[4][0] = '\0';
 	}
 	
-	return rating[i].w_width;
+	return w_width;
 }
 
 
