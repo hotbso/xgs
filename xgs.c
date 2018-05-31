@@ -221,7 +221,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     updateLogItemState();
     
 	char cache_path[512];
-	sprintf(cache_path, "%s%s%s%s%s%s%s", xpdir, psep, "Output", psep, "caches", psep, "XGS.cache");
+	sprintf(cache_path, "%s%sOutput%scaches%sXGS.cache", xpdir, psep, psep, psep);
 	airportdb_create(&airportdb, xpdir, cache_path);
 	if (!recreate_cache(&airportdb)) {
 		logMsg("recreate_cache failed\n");
@@ -420,10 +420,14 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
             
         XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
         XPLMDrawTranslucentDarkBox(left, top, right, bottom);
-        for (i = 0; i < 7; i++)
+        for (i = 0; i < 7; i++) {
+			if ('\0' == landMsg[i][0])
+				break;
+			
             XPLMDrawString(color, left + 5, top - 20 - i*15, 
                     landMsg[i], NULL, xplmFont_Basic);
-        
+        }
+		
         glDisable(GL_TEXTURE_2D);
         glColor3f(0.7f, 0.7f, 0.7f);
         glBegin(GL_LINES);
@@ -493,12 +497,17 @@ static int printLandingMessage(float vy, float g)
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
     sprintf(landMsg[2], "G:  %.3f m/s²", g);
-	sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
-    sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
-    sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
-    sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
-						landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
-
+	if (NULL != landing_rwy) {
+		sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
+		sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
+		sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+		sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
+							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
+	} else {
+		strcpy(landMsg[3], "Not on a runway!");
+		landMsg[4][0] = '\0';
+	}
+	
 	return rating[i].w_width;
 }
 
@@ -700,35 +709,37 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			if (yAgl < 1.0)
 				loop_delay = -1.0;
 			
-			/* catch only first TD, i.e. no bouncing,
-			   landing_rwy can be NULL here after a teleportation */
-			if (STATE_LAND == state && landing_dist <= 0 && NULL != landing_rwy) {
-				float lat = dr_getf(&lat_dr);
-				float lon = dr_getf(&lon_dr);
-				
-				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
-				const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
-			
-				vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
-				vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
-				landing_dist = vect2_abs(my_v);
-				double cl_len = vect2_abs(center_line_v);
-				if (cl_len > 0) {
-					vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
-				
-					double dprod = vect2_dotprod(cl_unit_v, my_v);
-					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
-					vect2_t dev_v = vect2_sub(my_v, p_v);
+			if (STATE_LAND == state) {
+				/* catch only first TD, i.e. no bouncing,
+				   landing_rwy can be NULL here after a teleportation or when not landing on a rwy */
+				if (landing_dist <= 0 && NULL != landing_rwy) {
+					float lat = dr_getf(&lat_dr);
+					float lon = dr_getf(&lon_dr);
 					
-					/* get signed deviation, + -> right, - -> left */
-					landing_cl_delta = vect2_abs(dev_v);
-					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
-					/* by sign of cross product */
-					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+					vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+					const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
+					const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
+				
+					vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
+					vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+					landing_dist = vect2_abs(my_v);
+					double cl_len = vect2_abs(center_line_v);
+					if (cl_len > 0) {
+						vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
 					
-					/* angle between cl and my heading */
-					landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
+						double dprod = vect2_dotprod(cl_unit_v, my_v);
+						vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
+						vect2_t dev_v = vect2_sub(my_v, p_v);
+						
+						/* get signed deviation, + -> right, - -> left */
+						landing_cl_delta = vect2_abs(dev_v);
+						double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
+						/* by sign of cross product */
+						landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+						
+						/* angle between cl and my heading */
+						landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
+					}
 				}
 				
 				createEventWindow();
