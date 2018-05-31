@@ -8,14 +8,14 @@ SDK=../SDK
 ACFUT=../libacfutils-redist
 PLUGDIR=/e/X-Plane 11/Resources/plugins/xgs
 
-CC=gcc
-LD=gcc
+CC=x86_64-w64-mingw32-gcc
+LD=x86_64-w64-mingw32-gcc
 
 CFLAGS+=-mdll -g0 -O2 -s -Wall -fdiagnostics-color -Wno-format-overflow -DWINDOWS -DWIN32 \
 	-I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DIBM=1 -DXPLM200
 
 LDFLAGS=-shared -static-libgcc -static -lpthread
-LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lxplm_64 -lxpwidgets_64 -lopengl32
+LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lXPLM_64 -lXPWidgets_64 -lopengl32
 
 
 all: $(TARGET)
@@ -29,6 +29,12 @@ $(TARGET): $(OBJECTS)
 clean:
 	rm $(OBJECTS) $(TARGET)
 
+# install the just compiled target
+install: $(TARGET)
+	mkdir -p "$(PLUGDIR)/64"
+	cp -p $(TARGET) "$(PLUGDIR)/64"
+
+# create the whole plugin directory
 plugin: $(TARGET)
 	mkdir -p "$(PLUGDIR)/64"
 	cp -p $(TARGET) "$(PLUGDIR)/64"
