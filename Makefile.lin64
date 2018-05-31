@@ -1,14 +1,15 @@
-PLUGINS="/opt/x-plane/X-Plane/Resources/plugins"
+PLUGINS=../X-Plane/Resources/plugins/xgs
 SDK=../SDK
+ACFUT=../libacfutils-redist
 
 TARGET=lin.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 
-CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -DLIN=1 -DXPLM200 -fPIC -fno-stack-protector
+CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -I$(ACFUT)/include -DLIN=1 -DXPLM200 -fPIC -fno-stack-protector
 LNFLAGS=-shared -rdynamic -nodefaultlibs -undefined_warning
-LIBS= #$(PLUGINS)/XPLM.so $(PLUGINS)/XPWidgets.so
+LIBS=-L$(ACFUT)/lin64/lib -lacfutils
 
 all: $(TARGET)
 
@@ -22,6 +23,5 @@ clean:
 	rm -f $(OBJECTS) $(TARGET)
 
 install: $(TARGET)
-	cp -f $(TARGET) $(PLUGINS)
-
+	cp -p $(TARGET) $(PLUGINS)/64
         
