@@ -102,22 +102,6 @@ static double landing_dist = -1;
 static double landing_cl_delta, landing_cl_angle;
 
 
-#ifdef __APPLE__
-static int MacToUnixPath(const char * inPath, char * outPath, int outPathMaxLen)
-{
-    CFStringRef inStr = CFStringCreateWithCString(kCFAllocatorDefault, inPath, kCFStringEncodingMacRoman);
-    if (inStr == NULL) return -1;
-    CFURLRef url = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, inStr, kCFURLHFSPathStyle,0);
-    CFStringRef outStr = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
-    if (!CFStringGetCString(outStr, outPath, outPathMaxLen, kCFURLPOSIXPathStyle)) return -1;
-    CFRelease(outStr);
-    CFRelease(url);
-    CFRelease(inStr);
-    return 0;
-}
-#endif
-
-
 static FILE* getConfigFile(char *mode)
 {
     char path[512];
@@ -126,15 +110,7 @@ static FILE* getConfigFile(char *mode)
     XPLMExtractFileAndPath(path);
     strcat(path, psep);
     strcat(path, "xgs.prf");
-
-#ifdef __APPLE__
-    char unixPath[512];
-    MacToUnixPath(path, unixPath, 512);
-    
-    return fopen(unixPath, mode);
-#else
     return fopen(path, mode);
-#endif
 }
 
 
@@ -258,14 +234,7 @@ static void writeLandingToLog()
     XPLMGetSystemPath(buf);
     strcat(buf, "landing.log");
 
-#ifdef __APPLE__
-    char unixPath[512];
-    MacToUnixPath(buf, unixPath, 512);
-
-    f = fopen(unixPath, "a");
-#else
     f = fopen(buf, "a");
-#endif
     if (! f) return;
 
     strcpy(buf, ctime(&landingTime));
