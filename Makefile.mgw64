@@ -6,7 +6,7 @@ SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 SDK=../SDK
 ACFUT=../libacfutils-redist
-PLUGDIR=/e/X-Plane 11/Resources/plugins/xgs
+PLUGDIR=/e/X-Plane-11/Resources/plugins/xgs
 
 CC=x86_64-w64-mingw32-gcc
 LD=x86_64-w64-mingw32-gcc
