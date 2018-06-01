@@ -626,6 +626,25 @@ static void fix_landing_rwy()
 	}
 }
 
+#define MAX_GREC 200
+typedef struct grec_s {double t,v,g; } grec_t;
+static grec_t grec[MAX_GREC];
+static int n_grec;
+static double last_ts;
+
+static void dump_grec()
+{
+	grec_t *p = &grec[0];
+	double tstart = p->t;
+	
+	for (int i = 1; i < n_grec; i++) {
+		grec_t *gr = &grec[i];
+		logMsg("grec# %f;%f;%f;%f", gr->t - tstart, gr->v * MS_2_FPM, gr->g, 1 - (gr->v - p->v) / (gr->t - p->t));
+		p = gr;
+	}
+	
+	n_grec = 0;
+}
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
@@ -668,9 +687,20 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			loop_delay = -1.0; /* get high resolution in touch down phase*/
             updateLandingResult();
             remainingUpdateTime -= inElapsedSinceLastCall;
-            if (0.0 > remainingUpdateTime)
+			
+			if (n_grec < MAX_GREC) {
+				grec_t *gr = &grec[n_grec++];
+				gr->t = last_ts;
+				gr->v = lastVSpeed;
+				gr->g = lastG;
+			}
+			
+            if (0.0 > remainingUpdateTime) {
+				dump_grec();
                 remainingUpdateTime = 0.0;
+			}
         }
+		
         if (0.0f < remainingShowTime) {
             remainingShowTime -= inElapsedSinceLastCall;
             if (0.0f >= remainingShowTime)
@@ -720,6 +750,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
         }
     }
 
+	last_ts = timeFromStart;
     lastVSpeed = fabs(XPLMGetDataf(vertSpeedRef));
     lastG = fabs(XPLMGetDataf(gForceRef));
     lastState = state;
