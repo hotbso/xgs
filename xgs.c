@@ -43,7 +43,6 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 static XPLMWindowID gWindow = NULL;
 static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
-static XPLMDataRef gForceRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr;
 
 static char landMsg[7][100];
@@ -180,7 +179,6 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
 	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
-    gForceRef = XPLMFindDataRef("sim/flightmodel2/misc/gforce_normal");
 
 	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
@@ -538,7 +536,6 @@ static void createEventWindow()
 {
     updateLandingResult();
     remainingShowTime = 60.0f;
-    remainingUpdateTime = 1.0f;
     if (! gWindow)
         gWindow = XPLMCreateWindow(winPosX, winPosY, 
                     winPosX + window_width, winPosY - WINDOW_HEIGHT, 
@@ -646,15 +643,46 @@ static void dump_grec()
 	n_grec = 0;
 }
 
+/* value with time stamp */
+typedef struct ts_val_s {float ts; float val;} ts_val_t;
+
+/* this one for building the 2nd order derivative of vy -> g */
+#define N_TS_VY 3
+/* initialize so we never get a divide by 0 in compute_g */
+static ts_val_t ts_vy[N_TS_VY] = { {-2.0f, 0.0f}, {-1.0f, 0.0f} };
+static int ts_val_cur = 2;
+
+static double compute_g()
+{
+	ts_val_t *p0, *p1, *p2;
+	p0 = &ts_vy[(ts_val_cur + (-2 + N_TS_VY)) % N_TS_VY];
+	p1 = &ts_vy[(ts_val_cur + (-1 + N_TS_VY)) % N_TS_VY];
+	p2 = &ts_vy[ts_val_cur];
+	
+	double h10 = p1->ts - p0->ts;
+	double h20 = p2->ts - p0->ts;
+	double h21 = p2->ts - p1->ts;
+	
+	return 1.0 - (-p0->val * h21 / (h10 * h20) + p1->val / h10 - p1->val / h21 + p2->val * h10 / (h21 * h20)); 
+}
+
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,    
                 void *inRefcon)
 {
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
-	float loop_delay = 0.05f;
+	float loop_delay = 0.025f;
 	
 	float height = dr_getf(&y_agl_dr);
+	
+	last_ts = ts_vy[ts_val_cur].ts;
+	lastVSpeed = ts_vy[ts_val_cur].val;
+	
+	ts_val_cur = (ts_val_cur + 1) % 3;
+    ts_vy[ts_val_cur].ts = timeFromStart;
+	ts_vy[ts_val_cur].val =fabs(XPLMGetDataf(vertSpeedRef));
+	lastG = compute_g();
 
 	if (STATE_AIR == state) {
 		
@@ -666,10 +694,9 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 					get_near_airports();
 				}
 				
-				if (NULL != near_airports) {
-					loop_delay = 0.01f;		/* increase resolution */
+				if (NULL != near_airports)
 					fix_landing_rwy();
-				}
+
 			}
 		} else if (height > 200) {
 			landing_rwy = NULL;		/* may a go around */
@@ -684,7 +711,6 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
             windowCloseRequest = 0;
             closeEventWindow();
         } else if (0.0 < remainingUpdateTime) {
-			loop_delay = -1.0; /* get high resolution in touch down phase*/
             updateLandingResult();
             remainingUpdateTime -= inElapsedSinceLastCall;
 			
@@ -707,52 +733,44 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 closeEventWindow();
         }
 
-        if (STATE_AIR == lastState) {
-			float yAgl = dr_getf(&y_agl_dr);
-			if (yAgl < 1.0)
-				loop_delay = -1.0;
+        if (STATE_AIR == lastState && STATE_LAND == state) {
+			/* catch only first TD, i.e. no bouncing,
+			   landing_rwy can be NULL here after a teleportation or when not landing on a rwy */
+			if (landing_dist <= 0 && NULL != landing_rwy) {
+				float lat = dr_getf(&lat_dr);
+				float lon = dr_getf(&lon_dr);
+				
+				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
+				const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
 			
-			if (STATE_LAND == state) {
-				/* catch only first TD, i.e. no bouncing,
-				   landing_rwy can be NULL here after a teleportation or when not landing on a rwy */
-				if (landing_dist <= 0 && NULL != landing_rwy) {
-					float lat = dr_getf(&lat_dr);
-					float lon = dr_getf(&lon_dr);
-					
-					vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-					const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
-					const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
+				vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
+				vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+				landing_dist = vect2_abs(my_v);
+				double cl_len = vect2_abs(center_line_v);
+				if (cl_len > 0) {
+					vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
 				
-					vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
-					vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
-					landing_dist = vect2_abs(my_v);
-					double cl_len = vect2_abs(center_line_v);
-					if (cl_len > 0) {
-						vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
+					double dprod = vect2_dotprod(cl_unit_v, my_v);
+					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
+					vect2_t dev_v = vect2_sub(my_v, p_v);
 					
-						double dprod = vect2_dotprod(cl_unit_v, my_v);
-						vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
-						vect2_t dev_v = vect2_sub(my_v, p_v);
-						
-						/* get signed deviation, + -> right, - -> left */
-						landing_cl_delta = vect2_abs(dev_v);
-						double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
-						/* by sign of cross product */
-						landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
-						
-						/* angle between cl and my heading */
-						landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
-					}
+					/* get signed deviation, + -> right, - -> left */
+					landing_cl_delta = vect2_abs(dev_v);
+					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
+					/* by sign of cross product */
+					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+					
+					/* angle between cl and my heading */
+					landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
 				}
-				
-				createEventWindow();
 			}
-        }
+			
+			remainingUpdateTime = 2.0f;
+			createEventWindow();
+		}
     }
 
-	last_ts = timeFromStart;
-    lastVSpeed = fabs(XPLMGetDataf(vertSpeedRef));
-    lastG = fabs(XPLMGetDataf(gForceRef));
     lastState = state;
     return loop_delay;
 }
