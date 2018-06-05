@@ -29,9 +29,9 @@
 #define VERSION "3.0b2"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
-                float inElapsedTimeSinceLastFlightLoop, int inCounter,    
+                float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon);
-                
+
 #define MS_2_FPM 196.850
 #define M_2_FT 3.2808
 #define STATE_LAND 1
@@ -102,10 +102,23 @@ static double landing_dist = -1;
 static double landing_cl_delta, landing_cl_angle;
 
 
+typedef struct ts_val_s {
+	float ts;		/* timestamp */
+	float vy;		/* vy */
+	double g;		/* g as derivative of vy */
+	double g_lp;	/* g after low pass filtering */
+	} ts_val_t;
+
+#define N_TS_VY 5
+/* initialize so we never get a divide by 0 in compute_g */
+static ts_val_t ts_vy[N_TS_VY] = { {-2.0f}, {-1.0f} };
+static int ts_val_cur = 2;
+static int loops_in_touchdown;
+
 static FILE* getConfigFile(char *mode)
 {
     char path[512];
-    
+
     XPLMGetPrefsPath(path);
     XPLMExtractFileAndPath(path);
     strcat(path, psep);
@@ -117,13 +130,13 @@ static FILE* getConfigFile(char *mode)
 static void saveConfig()
 {
     FILE *f;
-    
+
     f = getConfigFile("w");
     if (! f)
         return;
-    
+
     fprintf(f, "%i %i %i", winPosX, winPosY, logEnabled);
-    
+
     fclose(f);
 }
 
@@ -131,11 +144,11 @@ static void saveConfig()
 static void loadConfig()
 {
     FILE *f;
-    
+
     f = getConfigFile("r");
     if (! f)
         return;
-    
+
     fscanf(f, "%i %i %i", &winPosX, &winPosY, &logEnabled);
 
     fclose(f);
@@ -145,7 +158,7 @@ static void loadConfig()
 
 static void updateLogItemState()
 {
-    XPLMCheckMenuItem(xgsMenu, enableLogItem, 
+    XPLMCheckMenuItem(xgsMenu, enableLogItem,
         logEnabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 }
 
@@ -161,14 +174,14 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
     XPLMMenuID pluginsMenu;
     int subMenuItem;
-	
+
  	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 	log_init(XPLMDebugString, "xgs");
-	
+
     psep = XPLMGetDirectorySeparator();
 	XPLMGetSystemPath(xpdir);
-	
+
     loadConfig();
     strcpy(outName, "Landing Speed " VERSION);
     strcpy(outSig, "babichev.landspeed - hotbso");
@@ -187,14 +200,14 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
     memset(landMsg, 0, sizeof(landMsg));
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
-    
+
     pluginsMenu = XPLMFindPluginsMenu();
     subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
-    xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem, 
-                xgsMenuCallback, NULL);     
+    xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
+                xgsMenuCallback, NULL);
     enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
     updateLogItemState();
-    
+
 	char cache_path[512];
 	sprintf(cache_path, "%s%sOutput%scaches%sXGS.cache", xpdir, psep, psep, psep);
 	airportdb_create(&airportdb, xpdir, cache_path);
@@ -202,9 +215,9 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 		logMsg("recreate_cache failed\n");
 		goto error;
 	}
-	
+
     return 1;
-	
+
   error:
 	return 0;
 }
@@ -228,7 +241,7 @@ static void writeLandingToLog()
 {
     FILE *f;
     char buf[512];
-    
+
     logThisLanding = 0;
     XPLMGetSystemPath(buf);
     strcat(buf, "landing.log");
@@ -239,8 +252,8 @@ static void writeLandingToLog()
     strcpy(buf, ctime(&landingTime));
     trim(buf);
     fprintf(f, "%s %s %s %s '%s' %.3f m/s %.0f fpm %.3f G %s\n", buf, logAircraftIcao, logAircraftNum,
-                logAirportId, logAirportName, landingSpeed, 
-                landingSpeed * 60.0f * 3.2808f, landingG, 
+                logAirportId, logAirportName, landingSpeed,
+                landingSpeed * 60.0f * 3.2808f, landingG,
                 landMsg[0]);
 
     fclose(f);
@@ -251,17 +264,17 @@ static void closeEventWindow()
 {
     if (logThisLanding)
         writeLandingToLog();
-    
+
     if (gWindow) {
         XPLMDestroyWindow(gWindow);
         gWindow = NULL;
     }
-    
+
     landingSpeed = 0.0f;
     landingG = 0.0f;
     memset(landMsg, 0, sizeof(landMsg));
     remainingShowTime = 0.0f;
-	
+
 	landing_rwy = NULL;
 	landing_dist = -1;
 }
@@ -292,32 +305,32 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 			if (inParam == 0) {
 				char acf_path[512];
 				char acf_file[256];
-				
+
 				rating = std_rating;
 				window_width = STD_WINDOW_WIDTH;
-				
+
 				XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, acf_path);
-				
+
 				char *s = strrchr(acf_path, psep[0]);
 				if (NULL != s) {
 					strcpy(s+1, "xgs_rating.cfg");
 					logMsg("trying config file %s\n", acf_path);
-					
+
 					FILE *f = fopen(acf_path, "r");
-					
+
 					if (f) {
 						char line[200];
-						
+
 						int i = 0;
 						int firstLine = 1;
-						
+
 						while (fgets(line, sizeof line, f) && i < NRATING) {
 							if (line[0] == '#') continue;
 							line[sizeof(line) -1 ] = '\0';
 							trim(line);
 							if ('\0' == line[0])
 								continue;
-							
+
 							if (firstLine) {
 								firstLine = 0;
 								if (0 == strcmp(line, "V30")) {
@@ -327,7 +340,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 									break;
 								}
 							}
-							
+
 							char *s2 = NULL;
 							char *s1 = strchr(line, ';');
 							if (s1) {
@@ -338,16 +351,16 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 								logMsg("ill formed line -> %s\n", line);
 								break;
 							}
-							
+
 							s2++;
-							
+
 							float v_ms = atof(line);
 							float v_fpm = atof(s1);
 							logMsg("%f, %f, <%s>\n", v_ms, v_fpm, s2);
-							
+
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
 							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
-												
+
 							if (v_ms > 0) {
 								acf_rating[i].limit = v_ms;
 							} else if (v_fpm > 0) {
@@ -358,20 +371,20 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 							}
 							i++;
 						}
-						
+
 						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
 							rating = acf_rating;
 						} else {
 							logMsg("Invalid config file\n");
 						}
-						
+
 						fclose(f);
 					}
-					
-					
+
+
 				}
-			
-					
+
+
 			}
 		break;
 	}
@@ -384,17 +397,17 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
     if (0.0f < remainingShowTime) {
         int left, top, right, bottom;
         float color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
-            
+
         XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
         XPLMDrawTranslucentDarkBox(left, top, right, bottom);
         for (i = 0; i < 7; i++) {
 			if ('\0' == landMsg[i][0])
 				break;
-			
-            XPLMDrawString(color, left + 5, top - 20 - i*15, 
+
+            XPLMDrawString(color, left + 5, top - 20 - i*15,
                     landMsg[i], NULL, xplmFont_Basic);
         }
-		
+
         glDisable(GL_TEXTURE_2D);
         glColor3f(0.7f, 0.7f, 0.7f);
         glBegin(GL_LINES);
@@ -405,17 +418,17 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
         glEnd();
         glEnable(GL_TEXTURE_2D);
     }
-}                                   
+}
 
-static int mouseCallback(XPLMWindowID inWindowID, int x, int y,    
+static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
                    XPLMMouseStatus inMouse, void *inRefcon)
 {
     if (windowCloseRequest)
         return 1;
-    
+
     switch (inMouse) {
         case xplm_MouseDown:
-            if ((x >= winPosX + window_width - 8) && (x <= winPosX + window_width) && 
+            if ((x >= winPosX + window_width - 8) && (x <= winPosX + window_width) &&
                         (y <= winPosY) && (y >= winPosY - 8))
                 windowCloseRequest = 1;
             else {
@@ -423,16 +436,16 @@ static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
                 lastMouseY = y;
             }
             break;
-            
+
         case xplm_MouseDrag:
             winPosX += x - lastMouseX;
             winPosY += y - lastMouseY;
-            XPLMSetWindowGeometry(gWindow, winPosX, winPosY, 
+            XPLMSetWindowGeometry(gWindow, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
             lastMouseX = x;
             lastMouseY = y;
             break;
-            
+
         case xplm_MouseUp:
             break;
     }
@@ -440,7 +453,7 @@ static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
     return 1;
 }
 
-static void keyboardCallback(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,    
+static void keyboardCallback(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
                    char inVirtualKey, void *inRefcon, int losingFocus)
 {
 }
@@ -456,11 +469,11 @@ static int printLandingMessage(float vy, float g)
 	ASSERT(NULL != landing_rwy);
 
 	int w_width = STD_WINDOW_WIDTH;
-		
+
 	/* rating terminates with FLT_MAX */
 	int i = 0;
-	while (vy > rating[i].limit) i++;
-	
+	while (-vy > rating[i].limit) i++;
+
     strcpy(landMsg[0], rating[i].txt);
 	w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
@@ -478,7 +491,7 @@ static int printLandingMessage(float vy, float g)
 		strcpy(landMsg[3], "Not on a runway!");
 		landMsg[4][0] = '\0';
 	}
-	
+
 	return w_width;
 }
 
@@ -489,9 +502,9 @@ static void prepareToLog()
     float lat = dr_getf(&lat_dr);
     float lon = dr_getf(&lon_dr);
     XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL, xplm_Nav_Airport);
-    
+
     if (XPLM_NAV_NOT_FOUND != ref)
-        XPLMGetNavAidInfo(ref, NULL, &lat, &lon, NULL, NULL, NULL, logAirportId, 
+        XPLMGetNavAidInfo(ref, NULL, &lat, &lon, NULL, NULL, NULL, logAirportId,
                 logAirportName, NULL);
     else {
         logAirportId[0] = 0;
@@ -500,7 +513,7 @@ static void prepareToLog()
     landingTime = time(NULL);
     num = XPLMGetDatab(craftNumRef, logAircraftNum, 0, 49);
     logAircraftNum[num] = '\0';
-	
+
 	num = XPLMGetDatab(icaoRef, logAircraftIcao, 0, 39);
     logAircraftIcao[num] = '\0';
     logThisLanding = 1;
@@ -511,7 +524,7 @@ static void updateLandingResult()
 {
     int changed = 0;
 
-    if (landingSpeed < lastVSpeed) {
+    if (landingSpeed > lastVSpeed) {
         landingSpeed = lastVSpeed;
         changed = 1;
     }
@@ -525,9 +538,9 @@ static void updateLandingResult()
         int w = printLandingMessage(landingSpeed, landingG);
 		if (w > window_width) {
 			window_width = w;
-			XPLMSetWindowGeometry(gWindow, winPosX, winPosY, 
+			XPLMSetWindowGeometry(gWindow, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
-		}	
+		}
 	}
 }
 
@@ -537,9 +550,9 @@ static void createEventWindow()
     updateLandingResult();
     remainingShowTime = 60.0f;
     if (! gWindow)
-        gWindow = XPLMCreateWindow(winPosX, winPosY, 
-                    winPosX + window_width, winPosY - WINDOW_HEIGHT, 
-                    1, drawWindowCallback, keyboardCallback, 
+        gWindow = XPLMCreateWindow(winPosX, winPosY,
+                    winPosX + window_width, winPosY - WINDOW_HEIGHT,
+                    1, drawWindowCallback, keyboardCallback,
                     mouseCallback, NULL);
     if (logEnabled && (! logThisLanding))
         prepareToLog();
@@ -548,10 +561,10 @@ static void createEventWindow()
 static void get_near_airports()
 {
 	ASSERT(NULL == landing_rwy);
-	
+
 	if (near_airports)
 		free_nearest_airport_list(near_airports);
-	
+
 	geo_pos2_t my_pos;
 	my_pos = GEO_POS2(dr_getf(&lat_dr), dr_getf(&lon_dr));
 	load_nearest_airport_tiles(&airportdb, my_pos);
@@ -569,7 +582,7 @@ static void fix_landing_rwy()
 	/* have it already */
 	if (landing_rwy)
 		return;
-	
+
 	double thresh_dist_min = 1.0E12;
 
 	float lat = dr_getf(&lat_dr);
@@ -580,26 +593,26 @@ static void fix_landing_rwy()
 	const airport_t *min_arpt;
 	const runway_t *min_rwy;
 	int min_end;
-	
+
 	ASSERT(NULL != near_airports);
-	
+
 	/* loop over all runway ends */
 	for (const airport_t *arpt = list_head(near_airports);
 		arpt != NULL; arpt = list_next(near_airports, arpt)) {
 		ASSERT(arpt->load_complete);
-		
+
 		vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &arpt->fpp);
-		
+
 		for (const runway_t *rwy = avl_first(&arpt->rwys); rwy != NULL;
 			rwy = AVL_NEXT(&arpt->rwys, rwy)) {
-			
+
 			if (point_in_poly(pos_v, rwy->rwy_bbox)) {
 				for (int e = 0; e <=1; e++) {
 					const runway_end_t *rwy_end = &rwy->ends[e];
 					double rhdg = fabs(rel_hdg(hdg, rwy_end->hdg));
 					if (rhdg > 20)
 						continue;
-					
+
 					vect2_t thr_v = rwy_end->dthr_v;
 					double dist = vect2_abs(vect2_sub(thr_v, pos_v));
 					if (dist < thresh_dist_min) {
@@ -613,7 +626,7 @@ static void fix_landing_rwy()
 			}
 		}
 	}
-		
+
 	if (in_rwy_bb) {
 		landing_rwy = min_rwy;
 		landing_rwy_end = min_end;
@@ -627,65 +640,81 @@ static void fix_landing_rwy()
 typedef struct grec_s {double t,v,g; } grec_t;
 static grec_t grec[MAX_GREC];
 static int n_grec;
-static double last_ts;
 
 static void dump_grec()
 {
 	grec_t *p = &grec[0];
 	double tstart = p->t;
-	
+
 	for (int i = 1; i < n_grec; i++) {
 		grec_t *gr = &grec[i];
-		logMsg("grec# %f;%f;%f;%f", gr->t - tstart, gr->v * MS_2_FPM, gr->g, 1 - (gr->v - p->v) / (gr->t - p->t));
+		logMsg("grec# %f;%f;%f", gr->t - tstart, gr->v * MS_2_FPM, gr->g);
 		p = gr;
 	}
-	
+
 	n_grec = 0;
 }
 
-/* value with time stamp */
-typedef struct ts_val_s {float ts; float val;} ts_val_t;
 
-/* this one for building the 2nd order derivative of vy -> g */
-#define N_TS_VY 3
-/* initialize so we never get a divide by 0 in compute_g */
-static ts_val_t ts_vy[N_TS_VY] = { {-2.0f, 0.0f}, {-1.0f, 0.0f} };
-static int ts_val_cur = 2;
+static void record_grec(const ts_val_t *p)
+{
+	if (n_grec < MAX_GREC) {
+		grec_t *gr = &grec[n_grec++];
+		gr->t = p->ts;
+		gr->v = p->vy;
+		gr->g = p->g_lp;
+	}
+}
 
-static double compute_g()
+static void compute_g()
 {
 	ts_val_t *p0, *p1, *p2;
 	p0 = &ts_vy[(ts_val_cur + (-2 + N_TS_VY)) % N_TS_VY];
 	p1 = &ts_vy[(ts_val_cur + (-1 + N_TS_VY)) % N_TS_VY];
 	p2 = &ts_vy[ts_val_cur];
-	
+
 	double h10 = p1->ts - p0->ts;
 	double h20 = p2->ts - p0->ts;
 	double h21 = p2->ts - p1->ts;
-	
-	return 1.0 - (-p0->val * h21 / (h10 * h20) + p1->val / h10 - p1->val / h21 + p2->val * h10 / (h21 * h20)); 
+
+	p1 -> g = 1.0 + (-p0->vy * h21 / (h10 * h20) + p1->vy / h10 - p1->vy / h21 + p2->vy * h10 / (h21 * h20));
+}
+
+
+static void compute_g_lp()
+{
+	ts_val_t *pm1,*p0, *p1, *p2;
+
+	pm1 = &ts_vy[(ts_val_cur + (-4 + N_TS_VY)) % N_TS_VY];
+	p0 = &ts_vy[(ts_val_cur + (-3 + N_TS_VY)) % N_TS_VY];
+	p1 = &ts_vy[(ts_val_cur + (-2 + N_TS_VY)) % N_TS_VY];
+	p2 = &ts_vy[(ts_val_cur + (-1 + N_TS_VY)) % N_TS_VY];
+
+	/* low pass as rect integral of 3 values. With loop delay >= 0.25 and ~ 30 frames/sec
+	   this filters below ~ 0.1 Hz */
+	p1->g_lp = (p0->g * (p0->ts - pm1->ts) + p1->g * (p1->ts - p0->ts) + p2->g * (p2->ts - p1->ts))
+				/ (p2->ts - pm1->ts);
 }
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
-                float inElapsedTimeSinceLastFlightLoop, int inCounter,    
+                float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon)
 {
     int state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	float loop_delay = 0.025f;
-	
+
 	float height = dr_getf(&y_agl_dr);
-	
-	last_ts = ts_vy[ts_val_cur].ts;
-	lastVSpeed = ts_vy[ts_val_cur].val;
-	
-	ts_val_cur = (ts_val_cur + 1) % 3;
+
+	ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
     ts_vy[ts_val_cur].ts = timeFromStart;
-	ts_vy[ts_val_cur].val =fabs(XPLMGetDataf(vertSpeedRef));
-	lastG = compute_g();
+	ts_vy[ts_val_cur].vy = XPLMGetDataf(vertSpeedRef);
+
+	compute_g();
+	compute_g_lp();
 
 	if (STATE_AIR == state) {
-		
+
 		/* low, alert mode */
 		if (height < 150) {
 			if (NULL == landing_rwy) {
@@ -693,40 +722,49 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 					arpt_last_reload = timeFromStart;
 					get_near_airports();
 				}
-				
+
 				if (NULL != near_airports)
 					fix_landing_rwy();
 
 			}
 		} else if (height > 200) {
-			landing_rwy = NULL;		/* may a go around */
+			landing_rwy = NULL;		/* may be a go around */
 		}
-		
+
 		if (height > 500)
 			loop_delay = 1.0f;		/* we can be lazy */
 	}
-	
+
     if (3.0 < timeFromStart) {
         if (windowCloseRequest) {
             windowCloseRequest = 0;
             closeEventWindow();
+
         } else if (0.0 < remainingUpdateTime) {
-            updateLandingResult();
             remainingUpdateTime -= inElapsedSinceLastCall;
-			
-			if (n_grec < MAX_GREC) {
-				grec_t *gr = &grec[n_grec++];
-				gr->t = last_ts;
-				gr->v = lastVSpeed;
-				gr->g = lastG;
+
+			/* we start we the last value prior to ground contact.
+			   This is 2 back from current at touchdown */
+			if (1 <= loops_in_touchdown) {
+				const ts_val_t *tsv = &ts_vy[(ts_val_cur - 2 + N_TS_VY) % N_TS_VY];
+				lastVSpeed = tsv->vy;
+				lastG = tsv->g_lp;
+				record_grec(tsv);
 			}
-			
+
+			updateLandingResult();
+
+			if (20 == loops_in_touchdown)
+				createEventWindow();
+
             if (0.0 > remainingUpdateTime) {
 				dump_grec();
                 remainingUpdateTime = 0.0;
 			}
+
+		loops_in_touchdown++;
         }
-		
+
         if (0.0f < remainingShowTime) {
             remainingShowTime -= inElapsedSinceLastCall;
             if (0.0f >= remainingShowTime)
@@ -739,35 +777,38 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			if (landing_dist <= 0 && NULL != landing_rwy) {
 				float lat = dr_getf(&lat_dr);
 				float lon = dr_getf(&lon_dr);
-				
+
 				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
 				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
 				const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
-			
+
 				vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
 				vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
 				landing_dist = vect2_abs(my_v);
 				double cl_len = vect2_abs(center_line_v);
 				if (cl_len > 0) {
 					vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
-				
+
 					double dprod = vect2_dotprod(cl_unit_v, my_v);
-					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);			
+					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);
 					vect2_t dev_v = vect2_sub(my_v, p_v);
-					
+
 					/* get signed deviation, + -> right, - -> left */
 					landing_cl_delta = vect2_abs(dev_v);
 					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
 					/* by sign of cross product */
 					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
-					
+
 					/* angle between cl and my heading */
 					landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
 				}
 			}
-			
-			remainingUpdateTime = 2.0f;
-			createEventWindow();
+
+			/* only on first bounce */
+			if (remainingUpdateTime <= 0.0f) {
+				remainingUpdateTime = 3.0f;
+				loops_in_touchdown = 0;
+			}
 		}
     }
 
