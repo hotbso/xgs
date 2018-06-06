@@ -642,6 +642,7 @@ static void fix_landing_rwy()
 	}
 }
 
+#ifdef DEBUG_G_LP
 #define MAX_GREC 200
 typedef struct grec_s {double t,v,g; } grec_t;
 static grec_t grec[MAX_GREC];
@@ -671,7 +672,12 @@ static void record_grec(const ts_val_t *p)
 		gr->g = p->g_lp;
 	}
 }
+#else
+#define dump_grec() do {} while(0)
+#define record_grec(p) do {} while(0)
+#endif
 
+/* g as derivative of vy per second order approximation */
 static void compute_g()
 {
 	ts_val_t *p0, *p1, *p2;
@@ -687,6 +693,7 @@ static void compute_g()
 }
 
 
+/* low pass filter for g */
 static void compute_g_lp()
 {
 	ts_val_t *p[G_LP_ORDER+1];
