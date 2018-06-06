@@ -110,6 +110,12 @@ typedef struct ts_val_s {
 	} ts_val_t;
 
 #define N_TS_VY 5
+#define G_LP_ORDER 4
+
+#if G_LP_ORDER > (N_TS_VY-1)
+#error G_LP_ORDER too large
+#endif
+
 /* initialize so we never get a divide by 0 in compute_g */
 static ts_val_t ts_vy[N_TS_VY] = { {-2.0f}, {-1.0f} };
 static int ts_val_cur = 2;
@@ -683,17 +689,20 @@ static void compute_g()
 
 static void compute_g_lp()
 {
-	ts_val_t *pm1,*p0, *p1, *p2;
+	ts_val_t *p[G_LP_ORDER+1];
 
-	pm1 = &ts_vy[(ts_val_cur + (-4 + N_TS_VY)) % N_TS_VY];
-	p0 = &ts_vy[(ts_val_cur + (-3 + N_TS_VY)) % N_TS_VY];
-	p1 = &ts_vy[(ts_val_cur + (-2 + N_TS_VY)) % N_TS_VY];
-	p2 = &ts_vy[(ts_val_cur + (-1 + N_TS_VY)) % N_TS_VY];
+	for (int i = 0; i < G_LP_ORDER + 1; i++) {
+		/* */
+		p[i] = &ts_vy[(ts_val_cur - G_LP_ORDER + i + N_TS_VY) % N_TS_VY];
+	}
 
-	/* low pass as rect integral of 3 values. With loop delay >= 0.25 and ~ 30 frames/sec
+	/* low pass as integral over g considered as step function. With loop delay >= 0.25 and ~ 30 frames/sec
 	   this filters below ~ 0.1 Hz */
-	p1->g_lp = (p0->g * (p0->ts - pm1->ts) + p1->g * (p1->ts - p0->ts) + p2->g * (p2->ts - p1->ts))
-				/ (p2->ts - pm1->ts);
+	double sum = 0.0;
+	for (int i = 0; i < G_LP_ORDER; i++)
+		sum += p[i]->g * (p[i+1]->ts - p[i]->ts);
+	
+	p[G_LP_ORDER - 2]->g_lp = sum / (p[G_LP_ORDER]->ts - p[0]->ts);
 }
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
