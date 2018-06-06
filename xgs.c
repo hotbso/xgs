@@ -26,7 +26,7 @@
 #include <GL/gl.h>
 #endif
 
-#define VERSION "3.0b2"
+#define VERSION "3.0b3"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
