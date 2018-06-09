@@ -34,6 +34,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 #define MS_2_FPM 196.850
 #define M_2_FT 3.2808
+#define G 9.80665
 #define STATE_LAND 1
 #define STATE_AIR 2
 
@@ -484,7 +485,7 @@ static int printLandingMessage(float vy, float g)
 	w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
-    sprintf(landMsg[2], "G:  %.3f m/s²", g);
+    sprintf(landMsg[2], "G:  %.2f", g);
 	if (NULL != landing_rwy) {
 		sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
 		sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
@@ -689,7 +690,7 @@ static void compute_g()
 	double h20 = p2->ts - p0->ts;
 	double h21 = p2->ts - p1->ts;
 
-	p1 -> g = 1.0 + (-p0->vy * h21 / (h10 * h20) + p1->vy / h10 - p1->vy / h21 + p2->vy * h10 / (h21 * h20));
+	p1 -> g = 1.0 + (-p0->vy * h21 / (h10 * h20) + p1->vy / h10 - p1->vy / h21 + p2->vy * h10 / (h21 * h20)) / G;
 }
 
 
