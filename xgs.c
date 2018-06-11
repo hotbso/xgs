@@ -26,7 +26,7 @@
 #include <GL/gl.h>
 #endif
 
-#define VERSION "3.0b3"
+#define VERSION "3.0b5"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -110,8 +110,10 @@ typedef struct ts_val_s {
 	double g_lp;	/* g after low pass filtering */
 	} ts_val_t;
 
-#define N_TS_VY 5
-#define G_LP_ORDER 4
+/* length of array */
+#define N_TS_VY 4
+/* order of LP filter */
+#define G_LP_ORDER 3
 
 #if G_LP_ORDER > (N_TS_VY-1)
 #error G_LP_ORDER too large
@@ -644,6 +646,9 @@ static void fix_landing_rwy()
 }
 
 #ifdef DEBUG_G_LP
+
+/* put values in CSV format into log so it can be grepped out easily */
+
 #define MAX_GREC 200
 typedef struct grec_s {double t,v,g; } grec_t;
 static grec_t grec[MAX_GREC];
