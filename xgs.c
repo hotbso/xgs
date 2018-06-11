@@ -42,9 +42,9 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define STD_WINDOW_WIDTH 180
 
 static XPLMWindowID gWindow = NULL;
-static XPLMDataRef vertSpeedRef, gearKoofRef, flightTimeRef;
+static XPLMDataRef gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
-static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr;
+static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
 
 static char landMsg[7][100];
 static int lastState;
@@ -196,7 +196,6 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     strcpy(outSig, "babichev.landspeed - hotbso");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
 
-    vertSpeedRef = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
     gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
     flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
 	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
@@ -206,8 +205,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     dr_find(&lon_dr, "sim/flightmodel/position/longitude");
     dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-
-    memset(landMsg, 0, sizeof(landMsg));
+	dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
+	
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
 
     pluginsMenu = XPLMFindPluginsMenu();
@@ -281,7 +280,6 @@ static void closeEventWindow()
 
     landingSpeed = 0.0f;
     landingG = 0.0f;
-    memset(landMsg, 0, sizeof(landMsg));
     remainingShowTime = 0.0f;
 
 	landing_rwy = NULL;
@@ -363,8 +361,8 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 
 							s2++;
 
-							float v_ms = atof(line);
-							float v_fpm = atof(s1);
+							float v_ms = fabs(atof(line));
+							float v_fpm = fabs(atof(s1));
 							logMsg("%f, %f, <%s>\n", v_ms, v_fpm, s2);
 
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
@@ -481,7 +479,7 @@ static int printLandingMessage(float vy, float g)
 
 	/* rating terminates with FLT_MAX */
 	int i = 0;
-	while (-vy > rating[i].limit) i++;
+	while (fabs(vy) > rating[i].limit) i++;
 
     strcpy(landMsg[0], rating[i].txt);
 	w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
@@ -730,7 +728,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 	ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
     ts_vy[ts_val_cur].ts = timeFromStart;
-	ts_vy[ts_val_cur].vy = XPLMGetDataf(vertSpeedRef);
+	ts_vy[ts_val_cur].vy = dr_getf(&vy_dr);
 
 	compute_g();
 	compute_g_lp();
