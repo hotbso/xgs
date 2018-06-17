@@ -820,7 +820,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
 
 					/* angle between cl and my heading */
-					landing_cl_angle = rel_hdg(dr_getf(&hdg_dr), near_end->hdg);
+					landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
 				}
 			}
 
