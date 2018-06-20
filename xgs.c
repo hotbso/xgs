@@ -26,7 +26,7 @@
 #include <GL/gl.h>
 #endif
 
-#define VERSION "3.0b5"
+#define VERSION "3.0"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -261,7 +261,7 @@ static void writeLandingToLog()
     trim(buf);
     fprintf(f, "%s %s %s %s '%s' %.3f m/s %.0f fpm %.3f G %s\n", buf, logAircraftIcao, logAircraftNum,
                 logAirportId, logAirportName, landingSpeed,
-                landingSpeed * 60.0f * 3.2808f, landingG,
+                landingSpeed * MS_2_FPM, landingG,
                 landMsg[0]);
 
     fclose(f);
@@ -363,7 +363,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 
 							float v_ms = fabs(atof(line));
 							float v_fpm = fabs(atof(s1));
-							logMsg("%f, %f, <%s>\n", v_ms, v_fpm, s2);
+							logMsg("%f, %f, <%s>", v_ms, v_fpm, s2);
 
 							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
 							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
