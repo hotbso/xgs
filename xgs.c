@@ -267,6 +267,7 @@ static void closeEventWindow()
         writeLandingToLog();
 
     if (main_win) {
+		XPGetWidgetGeometry(main_win, &winPosX, &winPosY, NULL, NULL);
 		XPHideWidget(main_win);
     }
 
@@ -483,8 +484,8 @@ static void updateLandingResult()
 static int main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1, intptr_t param2)
 {
 	if (msg == xpMessage_CloseButtonPushed && widget == main_win) {
-		XPHideWidget(main_win);
-		return (1);
+		closeEventWindow();
+		return 1;
 	}
 
 	return 0;
