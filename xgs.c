@@ -32,7 +32,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define STATE_LAND 1
 #define STATE_AIR 2
 
-#define WINDOW_HEIGHT 125
+#define WINDOW_HEIGHT 140
 #define STD_WINDOW_WIDTH 180
 
 #define N_WIN_LINE 7
@@ -389,37 +389,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 	}
 }
 
-#if 0
-void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
-{
-    int i;
-
-    if (0.0f < remainingShowTime) {
-        int left, top, right, bottom;
-        float color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
-
-        XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
-        XPLMDrawTranslucentDarkBox(left, top, right, bottom);
-        for (i = 0; i < 7; i++) {
-			if ('\0' == landMsg[i][0])
-				break;
-
-            XPLMDrawString(color, left + 5, top - 20 - i*15,
-                    landMsg[i], NULL, xplmFont_Basic);
-        }
-
-        glDisable(GL_TEXTURE_2D);
-        glColor3f(0.7f, 0.7f, 0.7f);
-        glBegin(GL_LINES);
-          glVertex2i(right - 1, top - 1);
-          glVertex2i(right - 7, top - 7);
-          glVertex2i(right - 7, top - 1);
-          glVertex2i(right - 1, top - 7);
-        glEnd();
-        glEnable(GL_TEXTURE_2D);
-    }
-}
-#endif
 
 static int getCurrentState()
 {
@@ -504,6 +473,10 @@ static void updateLandingResult()
 			XPSetWidgetGeometry(main_win, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
 		}
+		
+		for (int i = 0; i < N_WIN_LINE; i++) {
+			XPSetWidgetDescriptor(win_line[i], landMsg[i]);
+		}
 	}
 }
 
@@ -519,17 +492,26 @@ static int main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param
 
 static void createEventWindow()
 {
-	updateLandingResult();
 	remainingShowTime = 60.0f;
+	int left = winPosX;
+	int top = winPosY;
 	
 	if (NULL == main_win) {
-		main_win = XPCreateWidget(winPosX, winPosY, winPosX + window_width, winPosY - WINDOW_HEIGHT,
+		main_win = XPCreateWidget(left, top, winPosX + window_width, winPosY - WINDOW_HEIGHT,
 			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
 		XPAddWidgetCallback(main_win, main_window_cb);
+		
+		for (int i = 0; i < N_WIN_LINE; i++) {
+			int top_line = top - 20 - i*15;
+			win_line[i] = XPCreateWidget(left + 5, top_line, left + window_width, top_line - 13,
+				1, "xxxx", 0, main_win, xpWidgetClass_Caption);
+			XPSetWidgetProperty(win_line[i], xpProperty_CaptionLit, 1);
+       }
 	}
-	
+
+	updateLandingResult();	
 	XPShowWidget(main_win);
 	
 	if (logEnabled && (! logThisLanding))
