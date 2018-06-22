@@ -14,19 +14,13 @@
 #include "XPLMProcessing.h"
 #include "XPLMMenus.h"
 #include "XPLMNavigation.h"
+#include "XPWidgets.h"
+#include "XPStandardWidgets.h"
 
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#ifdef __APPLE__
-#include <OpenGL/gl.h>
-#include <Carbon/Carbon.h>
-#else
-#include <stdlib.h>
-#include <GL/gl.h>
-#endif
-
-#define VERSION "3.0"
+#define VERSION "3.0-dev"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -41,12 +35,13 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define WINDOW_HEIGHT 125
 #define STD_WINDOW_WIDTH 180
 
-static XPLMWindowID gWindow = NULL;
+#define N_WIN_LINE 7
+static XPWidgetID main_win, win_line[N_WIN_LINE];
 static XPLMDataRef gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
 
-static char landMsg[7][100];
+static char landMsg[N_WIN_LINE][100];
 static int lastState;
 static float landingSpeed = 0.0f;
 static float lastVSpeed = 0.0f;
@@ -57,8 +52,6 @@ static float remainingUpdateTime = 0.0f;
 
 static int winPosX = 20;
 static int winPosY = 600;
-static int lastMouseX, lastMouseY;
-static int windowCloseRequest = 0;
 static XPLMMenuID xgsMenu = NULL;
 static int enableLogItem;
 static int logEnabled = 0;
@@ -273,9 +266,8 @@ static void closeEventWindow()
     if (logThisLanding)
         writeLandingToLog();
 
-    if (gWindow) {
-        XPLMDestroyWindow(gWindow);
-        gWindow = NULL;
+    if (main_win) {
+		XPHideWidget(main_win);
     }
 
     landingSpeed = 0.0f;
@@ -397,6 +389,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 	}
 }
 
+#if 0
 void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
 {
     int i;
@@ -426,44 +419,7 @@ void drawWindowCallback(XPLMWindowID inWindowID, void *inRefcon)
         glEnable(GL_TEXTURE_2D);
     }
 }
-
-static int mouseCallback(XPLMWindowID inWindowID, int x, int y,
-                   XPLMMouseStatus inMouse, void *inRefcon)
-{
-    if (windowCloseRequest)
-        return 1;
-
-    switch (inMouse) {
-        case xplm_MouseDown:
-            if ((x >= winPosX + window_width - 8) && (x <= winPosX + window_width) &&
-                        (y <= winPosY) && (y >= winPosY - 8))
-                windowCloseRequest = 1;
-            else {
-                lastMouseX = x;
-                lastMouseY = y;
-            }
-            break;
-
-        case xplm_MouseDrag:
-            winPosX += x - lastMouseX;
-            winPosY += y - lastMouseY;
-            XPLMSetWindowGeometry(gWindow, winPosX, winPosY,
-                    winPosX + window_width, winPosY - WINDOW_HEIGHT);
-            lastMouseX = x;
-            lastMouseY = y;
-            break;
-
-        case xplm_MouseUp:
-            break;
-    }
-
-    return 1;
-}
-
-static void keyboardCallback(XPLMWindowID inWindowID, char inKey, XPLMKeyFlags inFlags,
-                   char inVirtualKey, void *inRefcon, int losingFocus)
-{
-}
+#endif
 
 static int getCurrentState()
 {
@@ -545,24 +501,39 @@ static void updateLandingResult()
         int w = printLandingMessage(landingSpeed, landingG);
 		if (w > window_width) {
 			window_width = w;
-			XPLMSetWindowGeometry(gWindow, winPosX, winPosY,
+			XPSetWidgetGeometry(main_win, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
 		}
 	}
 }
 
+static int main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1, intptr_t param2)
+{
+	if (msg == xpMessage_CloseButtonPushed && widget == main_win) {
+		XPHideWidget(main_win);
+		return (1);
+	}
+
+	return 0;
+}
 
 static void createEventWindow()
 {
-    updateLandingResult();
-    remainingShowTime = 60.0f;
-    if (! gWindow)
-        gWindow = XPLMCreateWindow(winPosX, winPosY,
-                    winPosX + window_width, winPosY - WINDOW_HEIGHT,
-                    1, drawWindowCallback, keyboardCallback,
-                    mouseCallback, NULL);
-    if (logEnabled && (! logThisLanding))
-        prepareToLog();
+	updateLandingResult();
+	remainingShowTime = 60.0f;
+	
+	if (NULL == main_win) {
+		main_win = XPCreateWidget(winPosX, winPosY, winPosX + window_width, winPosY - WINDOW_HEIGHT,
+			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
+		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
+		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
+		XPAddWidgetCallback(main_win, main_window_cb);
+	}
+	
+	XPShowWidget(main_win);
+	
+	if (logEnabled && (! logThisLanding))
+		prepareToLog();
 }
 
 static void get_near_airports()
@@ -756,11 +727,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	}
 
     if (3.0 < timeFromStart) {
-        if (windowCloseRequest) {
-            windowCloseRequest = 0;
-            closeEventWindow();
-
-        } else if (0.0 < remainingUpdateTime) {
+		if (0.0 < remainingUpdateTime) {
             remainingUpdateTime -= inElapsedSinceLastCall;
 
 			/* we start we the last value prior to ground contact.

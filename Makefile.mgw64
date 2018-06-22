@@ -15,7 +15,7 @@ CFLAGS+=-mdll -g0 -O2 -s -Wall -fdiagnostics-color -Wno-format-overflow -DWINDOW
 	-I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DIBM=1 -DXPLM200
 
 LDFLAGS=-shared -static-libgcc -static -lpthread
-LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lXPLM_64 -lXPWidgets_64 -lopengl32
+LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lXPLM_64 -lXPWidgets_64
 
 
 all: $(TARGET)
