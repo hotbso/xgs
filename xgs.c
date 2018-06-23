@@ -481,13 +481,32 @@ static void updateLandingResult()
 	}
 }
 
-static int main_window_cb(XPWidgetMessage msg, XPWidgetID widget, intptr_t param1, intptr_t param2)
+static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1, intptr_t param2)
 {
-	if (msg == xpMessage_CloseButtonPushed && widget == main_win) {
-		closeEventWindow();
-		return 1;
+	if (widget_id == main_win) {
+		if (msg == xpMessage_CloseButtonPushed) {
+			closeEventWindow();
+			return 1;
+		}
+
+		return 0;
 	}
 
+	/* for the custom widget */
+	if (xpMsg_Draw == msg) {
+		int left, top;
+		XPGetWidgetGeometry(widget_id, &left, &top, NULL, NULL);
+		static float color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
+
+        for (int i = 0; i < 7; i++) {
+			if ('\0' == landMsg[i][0])
+				break;
+
+			XPLMDrawString(color, left, top - (i+1)*15, landMsg[i], NULL, xplmFont_Basic);
+		}
+		return 1;
+	}
+	
 	return 0;
 }
 
@@ -498,18 +517,16 @@ static void createEventWindow()
 	int top = winPosY;
 	
 	if (NULL == main_win) {
-		main_win = XPCreateWidget(left, top, winPosX + window_width, winPosY - WINDOW_HEIGHT,
+		main_win = XPCreateWidget(left, top, left + window_width, top - WINDOW_HEIGHT,
 			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
-		XPAddWidgetCallback(main_win, main_window_cb);
+		XPAddWidgetCallback(main_win, widget_cb);	
 		
-		for (int i = 0; i < N_WIN_LINE; i++) {
-			int top_line = top - 20 - i*15;
-			win_line[i] = XPCreateWidget(left + 5, top_line, left + window_width, top_line - 13,
-				1, "xxxx", 0, main_win, xpWidgetClass_Caption);
-			XPSetWidgetProperty(win_line[i], xpProperty_CaptionLit, 1);
-       }
+		left += 10; top -= 20;
+		(void)XPCreateCustomWidget(left, top, left + window_width, top - WINDOW_HEIGHT,
+			1, "", 0, main_win, widget_cb);
+		
 	}
 
 	updateLandingResult();	
