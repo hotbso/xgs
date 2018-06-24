@@ -34,9 +34,10 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 #define WINDOW_HEIGHT 140
 #define STD_WINDOW_WIDTH 180
+#define SIDE_MARGIN 10
 
 #define N_WIN_LINE 7
-static XPWidgetID main_win, win_line[N_WIN_LINE];
+static XPWidgetID main_win;
 static XPLMDataRef gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
@@ -79,7 +80,7 @@ static rating_t std_rating[] = {
 static rating_t acf_rating[NRATING];
 
 static rating_t *rating = std_rating;
-static int window_width = STD_WINDOW_WIDTH;
+static int window_width;
 
 static char xpdir[512] = { 0 };
 const char *psep;
@@ -307,7 +308,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 				char acf_file[256];
 
 				rating = std_rating;
-				window_width = STD_WINDOW_WIDTH;
 
 				XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, acf_path);
 
@@ -408,7 +408,7 @@ static int printLandingMessage(float vy, float g)
 	while (fabs(vy) > rating[i].limit) i++;
 
     strcpy(landMsg[0], rating[i].txt);
-	w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
+	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
     sprintf(landMsg[2], "G:  %.2f", g);
@@ -418,7 +418,7 @@ static int printLandingMessage(float vy, float g)
 		sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
 		sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
 							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
-		w_width = MAX(w_width, (int)(10 + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[6], strlen(landMsg[6])))));
+		w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[6], strlen(landMsg[6])))));
 
 	} else {
 		strcpy(landMsg[3], "Not on a runway!");
@@ -474,10 +474,6 @@ static void updateLandingResult()
 			XPSetWidgetGeometry(main_win, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
 		}
-		
-		for (int i = 0; i < N_WIN_LINE; i++) {
-			XPSetWidgetDescriptor(win_line[i], landMsg[i]);
-		}
 	}
 }
 
@@ -513,22 +509,28 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 static void createEventWindow()
 {
 	remainingShowTime = 60.0f;
+	window_width = STD_WINDOW_WIDTH;
+
 	int left = winPosX;
 	int top = winPosY;
-	
+		
 	if (NULL == main_win) {
-		main_win = XPCreateWidget(left, top, left + window_width, top - WINDOW_HEIGHT,
+		main_win = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
 			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
 		XPAddWidgetCallback(main_win, widget_cb);	
 		
-		left += 10; top -= 20;
-		(void)XPCreateCustomWidget(left, top, left + window_width, top - WINDOW_HEIGHT,
+		left += SIDE_MARGIN; top -= 20;
+		(void)XPCreateCustomWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
 			1, "", 0, main_win, widget_cb);
 		
+	} else {
+		/* reset to standard width */
+		XPSetWidgetGeometry(main_win, winPosX, winPosY,
+							winPosX + STD_WINDOW_WIDTH, winPosY - WINDOW_HEIGHT);
 	}
-
+	
 	updateLandingResult();	
 	XPShowWidget(main_win);
 	
