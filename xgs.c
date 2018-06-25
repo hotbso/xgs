@@ -20,7 +20,7 @@
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#define VERSION "3.0-dev"
+#define VERSION "3.01"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
