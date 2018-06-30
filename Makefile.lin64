@@ -7,7 +7,7 @@ HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 
-CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -I$(ACFUT)/include -DLIN=1 -DXPLM200 -fPIC -fno-stack-protector
+CFLAGS=-Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DLIN=1 -DXPLM200 -fPIC -fno-stack-protector
 LNFLAGS=-shared -rdynamic -nodefaultlibs -undefined_warning
 LIBS=-L$(ACFUT)/lin64/lib -lacfutils
 
