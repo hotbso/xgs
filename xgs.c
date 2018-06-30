@@ -50,6 +50,7 @@ static float landingG = 0.0f;
 static float lastG = 0.0f;
 static float remainingShowTime = 0.0f;
 static float remainingUpdateTime = 0.0f;
+static float air_time;
 
 static int winPosX = 20;
 static int winPosY = 600;
@@ -275,6 +276,7 @@ static void closeEventWindow()
     landingSpeed = 0.0f;
     landingG = 0.0f;
     remainingShowTime = 0.0f;
+	air_time = 0.0f;
 
 	landing_rwy = NULL;
 	landing_dist = -1;
@@ -707,7 +709,10 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	compute_g_lp();
 
 	if (STATE_AIR == state) {
-
+		
+		if (height > 10.0)
+			air_time += inElapsedSinceLastCall;
+		
 		/* low, alert mode */
 		if (height < 150) {
 			if (NULL == landing_rwy) {
@@ -726,9 +731,10 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 		if (height > 500)
 			loop_delay = 1.0f;		/* we can be lazy */
-	}
+	} 
 
-    if (3.0 < timeFromStart) {
+	/* ensure we have a real flight (and not teleportation or a bumpy takeoff) */
+    if (15.0 < air_time) {
 		if (0.0 < remainingUpdateTime) {
             remainingUpdateTime -= inElapsedSinceLastCall;
 
