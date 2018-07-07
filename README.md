@@ -16,8 +16,8 @@ In addition to the 'old' xgs plugin this version features:
   - height above threshold
   - touchdown distance from threshold
   - deviation from center line
-  
-The development is currently in beta status and is tested with X-plane 11 64bit on Windows 10.
+
+- g-force is computed as derivative of vertical speed so these two values really match
 
 The latest binary kit can always be found here: https://github.com/hotbso/xgs/releases
 
