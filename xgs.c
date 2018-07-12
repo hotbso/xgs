@@ -20,7 +20,7 @@
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#define VERSION "3.01"
+#define VERSION "3.02"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -215,7 +215,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 	sprintf(cache_path, "%s%sOutput%scaches%sXGS.cache", xpdir, psep, psep, psep);
 	airportdb_create(&airportdb, xpdir, cache_path);
 	if (!recreate_cache(&airportdb)) {
-		logMsg("recreate_cache failed\n");
+		logMsg("recreate_cache failed");
 		goto error;
 	}
 
@@ -316,7 +316,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 				char *s = strrchr(acf_path, psep[0]);
 				if (NULL != s) {
 					strcpy(s+1, "xgs_rating.cfg");
-					logMsg("trying config file %s\n", acf_path);
+					logMsg("trying config file %s", acf_path);
 
 					FILE *f = fopen(acf_path, "r");
 
@@ -338,7 +338,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 								if (0 == strcmp(line, "V30")) {
 									continue;	/* the only version currently supported */
 								} else {
-									logMsg("Config file does not start with version number\n");
+									logMsg("Config file does not start with version number");
 									break;
 								}
 							}
@@ -350,7 +350,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 								s2 = strchr(s1, ';');
 							}
 							if (NULL == s1 || NULL == s2) {
-								logMsg("ill formed line -> %s\n", line);
+								logMsg("ill formed line -> %s", line);
 								break;
 							}
 
@@ -377,7 +377,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
 						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
 							rating = acf_rating;
 						} else {
-							logMsg("Invalid config file\n");
+							logMsg("Invalid config file");
 						}
 
 						fclose(f);
@@ -613,7 +613,7 @@ static void fix_landing_rwy()
 		landing_rwy = min_rwy;
 		landing_rwy_end = min_end;
 		landing_cross_height = dr_getf(&y_agl_dr);
-		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f\n",
+		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f",
 			   min_arpt->icao, landing_rwy->ends[landing_rwy_end].id, thresh_dist_min);
 	}
 }
