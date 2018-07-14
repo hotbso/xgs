@@ -212,7 +212,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     updateLogItemState();
 
 	char cache_path[512];
-	sprintf(cache_path, "%s%sOutput%scaches%sXGS.cache", xpdir, psep, psep, psep);
+	sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
 	airportdb_create(&airportdb, xpdir, cache_path);
 	if (!recreate_cache(&airportdb)) {
 		logMsg("recreate_cache failed");
