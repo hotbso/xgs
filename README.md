@@ -1,4 +1,4 @@
-# xgs landing speed plugin
+# xgs landing speed plugin for X-plane
 x-plane xgs landing speed plugin - reloaded
 
 This is a further development of the well known "Landing speed plugin" 
