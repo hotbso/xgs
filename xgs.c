@@ -84,7 +84,7 @@ static rating_t *rating = std_rating;
 static int window_width;
 
 static char xpdir[512] = { 0 };
-const char *psep;
+static const char *psep;
 
 static airportdb_t airportdb;
 static list_t *near_airports;
