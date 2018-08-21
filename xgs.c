@@ -17,6 +17,7 @@
 #include "XPWidgets.h"
 #include "XPStandardWidgets.h"
 
+#include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
