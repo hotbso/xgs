@@ -1,4 +1,5 @@
-SDK=../../SDK
+SDK=../SDK
+ACFUT=../libacfutils-redist
 
 TARGET=mac.xpl
 HEADERS=$(wildcard *.h)
@@ -8,11 +9,11 @@ OBJECTS=$(SOURCES:.c=.o)
 OSXC=-arch x86_64 -mmacosx-version-min=10.7 
 OSXL=-arch x86_64 -mmacosx-version-min=10.7
 
-DEFS= -DAPL=1 -DLIN=0 -DIBM=0 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -fno-rtti -fno-exceptions -DNDEBUG
+DEFS= -DAPL=1 -DXPLM200 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG
 
-CFLAGS+=-Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets $(DEFS) $(OSXC) 
-LNFLAGS+=-undefined warning -flat_namespace -dynamiclib -shared -rdynamic -nodefaultlibs $(OSXL) -fno-rtti -fvisibility=hidden -s -fno-exceptions -Wl,-exported_symbols_list -Wl,linkscript.mac
-LIBS+=
+CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include $(DEFS) $(OSXC)
+LNFLAGS+=-dynamiclib -shared -rdynamic -nodefaultlibs $(OSXL) -fvisibility=hidden -s -Wl,-exported_symbols_list -Wl,linkscript.mac
+LIBS+==-L$(ACFUT)/mac64/lib -lacfutils
 
 all: $(TARGET)
 
