@@ -12,12 +12,14 @@ OSXL=-arch x86_64 -mmacosx-version-min=10.7
 DEFS= -DAPL=1 -DXPLM200 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG
 
 CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include $(DEFS) $(OSXC)
-LNFLAGS+=-dynamiclib -shared -rdynamic -nodefaultlibs $(OSXL) -fvisibility=hidden -s -Wl,-exported_symbols_list -Wl,linkscript.mac
-LIBS+==-L$(ACFUT)/mac64/lib -lacfutils
+LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported_symbols_list -Wl,linkscript.mac
+
+# https://pewpewthespells.com/blog/static_and_dynamic_libraries.html
+LIBS+==-L$(ACFUT)/mac64/lib -lacfutils -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
 
 all: $(TARGET)
 
-.cpp.o:
+.c.o:
 	$(CC) $(CFLAGS) -c $<
 	
 $(TARGET): $(OBJECTS)
