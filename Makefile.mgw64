@@ -20,7 +20,7 @@ LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lXPLM_64 -lXPWidget
 
 all: $(TARGET)
 
-.c.obj:
+.c.o:
 	$(CC) $(CFLAGS) -c $<
 	
 $(TARGET): $(OBJECTS)
