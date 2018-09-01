@@ -15,7 +15,7 @@ CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/in
 LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported_symbols_list -Wl,linkscript.mac
 
 # https://pewpewthespells.com/blog/static_and_dynamic_libraries.html
-LIBS+==-L$(ACFUT)/mac64/lib -lacfutils -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
+LIBS+=-L$(ACFUT)/mac64/lib -lacfutils -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
 
 all: $(TARGET)
 
