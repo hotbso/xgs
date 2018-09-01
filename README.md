@@ -22,4 +22,6 @@ Home page on xplane.org: https://forums.x-plane.org/index.php?/files/file/45734-
 
 The latest binary kit can always be found here: https://github.com/hotbso/xgs/releases
 
-Thanks to Saso Kiselkov for his fantastic libacfutils library https://github.com/skiselkov/libacfutils !
+Thanks to
+- Saso Kiselkov for his fantastic libacfutils library https://github.com/skiselkov/libacfutils !
+- hoempapaaa for providing support for MacOS https://forums.x-plane.org/index.php?/profile/703701-hoempapaaa
