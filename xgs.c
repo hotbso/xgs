@@ -21,7 +21,7 @@
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#define VERSION "3.02"
+#define VERSION "3.1"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -253,8 +253,7 @@ static void writeLandingToLog()
     f = fopen(buf, "a");
     if (! f) return;
 
-    strcpy(buf, ctime(&landingTime));
-    trim(buf);
+    strftime(buf, sizeof buf, "%c", localtime(&landingTime));
     fprintf(f, "%s %s %s %s '%s' %.3f m/s %.0f fpm %.3f G %s\n", buf, logAircraftIcao, logAircraftNum,
                 logAirportId, logAirportName, landingSpeed,
                 landingSpeed * MS_2_FPM, landingG,
