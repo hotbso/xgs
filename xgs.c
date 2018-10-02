@@ -61,7 +61,6 @@ static int logEnabled = 0;
 
 static int logThisLanding = 0;
 static char logAirportId[50];
-static char logAirportName[300];
 static char logAircraftNum[50];
 static char logAircraftIcao[40];
 static time_t landingTime;
@@ -79,7 +78,7 @@ static rating_t std_rating[] = {
 };
 
 #define NRATING 10
-static rating_t acf_rating[NRATING];
+static rating_t cfg_rating[NRATING];
 
 static rating_t *rating = std_rating;
 static int window_width;
@@ -202,7 +201,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
 	dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
-	
+
     XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
 
     pluginsMenu = XPLMFindPluginsMenu();
@@ -254,10 +253,22 @@ static void writeLandingToLog()
     if (! f) return;
 
     strftime(buf, sizeof buf, "%c", localtime(&landingTime));
-    fprintf(f, "%s %s %s %s '%s' %.3f m/s %.0f fpm %.3f G %s\n", buf, logAircraftIcao, logAircraftNum,
-                logAirportId, logAirportName, landingSpeed,
-                landingSpeed * MS_2_FPM, landingG,
-                landMsg[0]);
+    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, logAircraftIcao, logAircraftNum,
+                logAirportId, landingSpeed,
+                landingSpeed * MS_2_FPM, landingG);
+
+	if (NULL != landing_rwy) {
+		fprintf(f, "Threshold %s, Above: %.f ft / %.f m, Distance: %.f ft / %.f m, from CL: %.f ft / %.f m / %.1f°, ",
+                landing_rwy->ends[landing_rwy_end].id,
+                landing_cross_height * M_2_FT, landing_cross_height,
+                landing_dist * M_2_FT, landing_dist,
+                landing_cl_delta * M_2_FT, landing_cl_delta,
+                landing_cl_angle);
+	} else {
+		fputs("Not on a runway!, ", f);
+	}
+
+    fprintf(f, "%s\n", landMsg[0]);
 
     fclose(f);
 }
@@ -282,6 +293,82 @@ static void closeEventWindow()
 	landing_dist = -1;
 }
 
+
+static int load_rating_cfg(const char *path)
+{
+    logMsg("trying rating config file '%s'", path);
+
+    FILE *f = fopen(path, "r");
+
+    if (f) {
+        char line[200];
+
+        int i = 0;
+        int firstLine = 1;
+
+        while (fgets(line, sizeof line, f) && i < NRATING) {
+            if (line[0] == '#') continue;
+            line[sizeof(line) -1 ] = '\0';
+            trim(line);
+            if ('\0' == line[0])
+                continue;
+
+            if (firstLine) {
+                firstLine = 0;
+                if (0 == strcmp(line, "V30")) {
+                    continue;	/* the only version currently supported */
+                } else {
+                    logMsg("Config file does not start with version number");
+                    break;
+                }
+            }
+
+            char *s2 = NULL;
+            char *s1 = strchr(line, ';');
+            if (s1) {
+                *s1++ = '\0';
+                s2 = strchr(s1, ';');
+            }
+            if (NULL == s1 || NULL == s2) {
+                logMsg("ill formed line -> %s", line);
+                break;
+            }
+
+            s2++;
+
+            float v_ms = fabs(atof(line));
+            float v_fpm = fabs(atof(s1));
+            logMsg("%f, %f, <%s>", v_ms, v_fpm, s2);
+
+            s2 = strncpy(cfg_rating[i].txt, s2, sizeof(cfg_rating[i].txt));
+            cfg_rating[i].txt[ sizeof(cfg_rating[i].txt) -1 ] = '\0';
+
+            if (v_ms > 0) {
+                cfg_rating[i].limit = v_ms;
+            } else if (v_fpm > 0) {
+                cfg_rating[i].limit = v_fpm / MS_2_FPM;
+            } else {
+                cfg_rating[i].limit = FLT_MAX;
+                break;
+            }
+            i++;
+        }
+
+        fclose(f);
+
+        if (i < NRATING && FLT_MAX == cfg_rating[i].limit) {
+            rating = cfg_rating;
+            logMsg("rating config file '%s' loaded successfully", path);
+            return 1;
+        }
+
+        logMsg("Invalid config file '%s'", path);
+    }
+
+    return 0;
+}
+
+
 PLUGIN_API void	XPluginStop(void)
 {
     closeEventWindow();
@@ -300,96 +387,31 @@ PLUGIN_API int XPluginEnable(void)
 }
 
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho,
-                long inMessage,	void *inParam)
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 {
-	switch (inMessage) {
-		case XPLM_MSG_PLANE_LOADED:
-			if (inParam == 0) {
-				char acf_path[512];
-				char acf_file[256];
+	if ((XPLM_MSG_PLANE_LOADED == msg) && (0 == param)) {
+        char path[512];
+        char acf_file[256];
+        
+        /* default to compiled in values */
+        rating = std_rating;
 
-				rating = std_rating;
+        /* try acf specific config */
+        XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, path);
+        char *s = strrchr(path, psep[0]);
+        if (NULL != s) {
+            strcpy(s+1, "xgs_rating.cfg");
+            if (load_rating_cfg(path))
+                return;
+        }
+        
+        /* try system wide config */
+        snprintf(path, sizeof path, "%sResources%splugins%sxgs%sstd_xgs_rating.cfg",
+                 xpdir, psep, psep, psep);
 
-				XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, acf_path);
-
-				char *s = strrchr(acf_path, psep[0]);
-				if (NULL != s) {
-					strcpy(s+1, "xgs_rating.cfg");
-					logMsg("trying config file %s", acf_path);
-
-					FILE *f = fopen(acf_path, "r");
-
-					if (f) {
-						char line[200];
-
-						int i = 0;
-						int firstLine = 1;
-
-						while (fgets(line, sizeof line, f) && i < NRATING) {
-							if (line[0] == '#') continue;
-							line[sizeof(line) -1 ] = '\0';
-							trim(line);
-							if ('\0' == line[0])
-								continue;
-
-							if (firstLine) {
-								firstLine = 0;
-								if (0 == strcmp(line, "V30")) {
-									continue;	/* the only version currently supported */
-								} else {
-									logMsg("Config file does not start with version number");
-									break;
-								}
-							}
-
-							char *s2 = NULL;
-							char *s1 = strchr(line, ';');
-							if (s1) {
-								*s1++ = '\0';
-								s2 = strchr(s1, ';');
-							}
-							if (NULL == s1 || NULL == s2) {
-								logMsg("ill formed line -> %s", line);
-								break;
-							}
-
-							s2++;
-
-							float v_ms = fabs(atof(line));
-							float v_fpm = fabs(atof(s1));
-							logMsg("%f, %f, <%s>", v_ms, v_fpm, s2);
-
-							s2 = strncpy(acf_rating[i].txt, s2, sizeof(acf_rating[i].txt));
-							acf_rating[i].txt[ sizeof(acf_rating[i].txt) -1 ] = '\0';
-
-							if (v_ms > 0) {
-								acf_rating[i].limit = v_ms;
-							} else if (v_fpm > 0) {
-								acf_rating[i].limit = v_fpm / MS_2_FPM;
-							} else {
-								acf_rating[i].limit = FLT_MAX;
-								break;
-							}
-							i++;
-						}
-
-						if (i < NRATING && FLT_MAX == acf_rating[i].limit) {
-							rating = acf_rating;
-						} else {
-							logMsg("Invalid config file");
-						}
-
-						fclose(f);
-					}
-
-
-				}
-
-
-			}
-		break;
-	}
+        if (load_rating_cfg(path))
+            return;
+    }
 }
 
 
@@ -440,10 +462,9 @@ static void prepareToLog()
 
     if (XPLM_NAV_NOT_FOUND != ref)
         XPLMGetNavAidInfo(ref, NULL, &lat, &lon, NULL, NULL, NULL, logAirportId,
-                logAirportName, NULL);
+                NULL, NULL);
     else {
         logAirportId[0] = 0;
-        logAirportName[0] = 0;
     }
     landingTime = time(NULL);
     num = XPLMGetDatab(craftNumRef, logAircraftNum, 0, 49);
@@ -504,7 +525,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 		}
 		return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -515,27 +536,27 @@ static void createEventWindow()
 
 	int left = winPosX;
 	int top = winPosY;
-		
+
 	if (NULL == main_win) {
 		main_win = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
 			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
 		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
-		XPAddWidgetCallback(main_win, widget_cb);	
-		
+		XPAddWidgetCallback(main_win, widget_cb);
+
 		left += SIDE_MARGIN; top -= 20;
 		(void)XPCreateCustomWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
 			1, "", 0, main_win, widget_cb);
-		
+
 	} else {
 		/* reset to standard width */
 		XPSetWidgetGeometry(main_win, winPosX, winPosY,
 							winPosX + STD_WINDOW_WIDTH, winPosY - WINDOW_HEIGHT);
 	}
-	
-	updateLandingResult();	
+
+	updateLandingResult();
 	XPShowWidget(main_win);
-	
+
 	if (logEnabled && (! logThisLanding))
 		prepareToLog();
 }
@@ -687,7 +708,7 @@ static void compute_g_lp()
 	double sum = 0.0;
 	for (int i = 0; i < G_LP_ORDER; i++)
 		sum += p[i]->g * (p[i+1]->ts - p[i]->ts);
-	
+
 	p[G_LP_ORDER - 2]->g_lp = sum / (p[G_LP_ORDER]->ts - p[0]->ts);
 }
 
@@ -709,10 +730,10 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	compute_g_lp();
 
 	if (STATE_AIR == state) {
-		
+
 		if (height > 10.0)
 			air_time += inElapsedSinceLastCall;
-		
+
 		/* low, alert mode */
 		if (height < 150) {
 			if (NULL == landing_rwy) {
@@ -731,7 +752,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 		if (height > 500)
 			loop_delay = 1.0f;		/* we can be lazy */
-	} 
+	}
 
 	/* ensure we have a real flight (and not teleportation or a bumpy takeoff) */
     if (15.0 < air_time) {
