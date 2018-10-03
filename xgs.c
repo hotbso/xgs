@@ -703,6 +703,47 @@ static void compute_g_lp()
 	p[G_LP_ORDER - 2]->g_lp = sum / (p[G_LP_ORDER]->ts - p[0]->ts);
 }
 
+/* to be called on initial ground contact */
+static void record_touchdown()
+{
+    if (NULL != landing_rwy) {
+        float lat = dr_getf(&lat_dr);
+        float lon = dr_getf(&lon_dr);
+
+        vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+
+        /* check whether we are really on a runway */
+
+        if (point_in_poly(pos_v, landing_rwy->rwy_bbox)) {
+            const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
+            const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
+
+            vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
+            vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+            landing_dist = vect2_abs(my_v);
+            double cl_len = vect2_abs(center_line_v);
+            if (cl_len > 0.0) {
+                vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
+
+                double dprod = vect2_dotprod(cl_unit_v, my_v);
+                vect2_t p_v = vect2_scmul(cl_unit_v, dprod);
+                vect2_t dev_v = vect2_sub(my_v, p_v);
+
+                /* get signed deviation, + -> right, - -> left */
+                landing_cl_delta = vect2_abs(dev_v);
+                double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
+                /* by sign of cross product */
+                landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+
+                /* angle between cl and my heading */
+                landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
+            }
+        } else {
+            landing_dist = -1.0;  /* did not land on runway */
+        }
+    }
+}
+
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -753,7 +794,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 		if (0.0 < remaining_update_time) {
             remaining_update_time -= inElapsedSinceLastCall;
 
-			/* we start we the last value prior to ground contact.
+			/* we start with the last value prior to ground contact.
 			   This is 2 back from current at touchdown */
 			if (1 <= loops_in_touchdown) {
 				const ts_val_t *tsv = &ts_vy[(ts_val_cur - 2 + N_TS_VY) % N_TS_VY];
@@ -790,45 +831,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
         if (!touchdown && ACF_STATE_AIR == acf_last_state && ACF_STATE_GROUND == acf_state) {
             touchdown = 1;
-
-			if (NULL != landing_rwy) {
-				float lat = dr_getf(&lat_dr);
-				float lon = dr_getf(&lon_dr);
-
-				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-
-                /* check whether we are really on a runway */
-
-                if (point_in_poly(pos_v, landing_rwy->rwy_bbox)) {
-                    const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
-                    const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
-
-                    vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
-                    vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
-                    landing_dist = vect2_abs(my_v);
-                    double cl_len = vect2_abs(center_line_v);
-                    if (cl_len > 0) {
-                        vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
-
-                        double dprod = vect2_dotprod(cl_unit_v, my_v);
-                        vect2_t p_v = vect2_scmul(cl_unit_v, dprod);
-                        vect2_t dev_v = vect2_sub(my_v, p_v);
-
-                        /* get signed deviation, + -> right, - -> left */
-                        landing_cl_delta = vect2_abs(dev_v);
-                        double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
-                        /* by sign of cross product */
-                        landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
-
-                        /* angle between cl and my heading */
-                        landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
-                    }
-                } else {
-                    landing_dist = -1.0;  /* did not land on runway */
-                }
-
-			}
-
+            record_touchdown();
             remaining_update_time = 3.0f;
             loops_in_touchdown = 0;
 		}
@@ -837,4 +840,3 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
     acf_last_state = acf_state;
     return loop_delay;
 }
-
