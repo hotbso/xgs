@@ -21,7 +21,7 @@
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#define VERSION "3.1"
+#define VERSION "3.1b1"
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -30,8 +30,8 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 #define MS_2_FPM 196.850
 #define M_2_FT 3.2808
 #define G 9.80665
-#define STATE_LAND 1
-#define STATE_AIR 2
+#define ACF_STATE_GROUND 1
+#define ACF_STATE_AIR 2
 
 #define WINDOW_HEIGHT 140
 #define STD_WINDOW_WIDTH 180
@@ -44,13 +44,13 @@ static XPLMDataRef craftNumRef, icaoRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
 
 static char landMsg[N_WIN_LINE][100];
-static int lastState;
-static float landingSpeed = 0.0f;
+static int acf_last_state;
+static float landing_speed = 0.0f;
 static float lastVSpeed = 0.0f;
-static float landingG = 0.0f;
+static float landing_G = 0.0f;
 static float lastG = 0.0f;
-static float remainingShowTime = 0.0f;
-static float remainingUpdateTime = 0.0f;
+static float remaining_show_time = 0.0f;
+static float remaining_update_time = 0.0f;
 static float air_time;
 
 static int winPosX = 20;
@@ -90,7 +90,8 @@ static float arpt_last_reload;
 static const runway_t *landing_rwy;
 static int landing_rwy_end;
 static double landing_cross_height;
-static double landing_dist = -1;
+static double landing_dist;
+static int touchdown;
 static double landing_cl_delta, landing_cl_angle;
 
 
@@ -214,10 +215,10 @@ static void update_landing_log()
 
     strftime(buf, sizeof buf, "%c", localtime(&now));
     fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, logAircraftIcao, logAircraftNum,
-                airport_id, landingSpeed,
-                landingSpeed * MS_2_FPM, landingG);
+                airport_id, landing_speed,
+                landing_speed * MS_2_FPM, landing_G);
 
-	if (NULL != landing_rwy) {
+	if (0.0 < landing_dist) {
 		fprintf(f, "Threshold %s, Above: %.f ft / %.f m, Distance: %.f ft / %.f m, from CL: %.f ft / %.f m / %.1f°, ",
                 landing_rwy->ends[landing_rwy_end].id,
                 landing_cross_height * M_2_FT, landing_cross_height,
@@ -240,13 +241,14 @@ static void closeEventWindow()
 		XPHideWidget(main_win);
     }
 
-    landingSpeed = 0.0f;
-    landingG = 0.0f;
-    remainingShowTime = 0.0f;
+    landing_speed = 0.0f;
+    landing_G = 0.0f;
+    remaining_show_time = 0.0f;
 	air_time = 0.0f;
 
 	landing_rwy = NULL;
-	landing_dist = -1;
+    touchdown = 0;
+    landing_dist = -1.0;
 }
 
 
@@ -431,7 +433,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 
 static int getCurrentState()
 {
-    return 0.0f != XPLMGetDataf(gearKoofRef) ? STATE_LAND : STATE_AIR;
+    return 0.0f != XPLMGetDataf(gearKoofRef) ? ACF_STATE_GROUND : ACF_STATE_AIR;
 }
 
 
@@ -450,7 +452,7 @@ static int printLandingMessage(float vy, float g)
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
     sprintf(landMsg[2], "G:  %.2f", g);
-	if (NULL != landing_rwy) {
+	if (landing_dist > 0.0) {
 		sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
 		sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
 		sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
@@ -471,18 +473,18 @@ static void updateLandingResult()
 {
     int changed = 0;
 
-    if (landingSpeed > lastVSpeed) {
-        landingSpeed = lastVSpeed;
+    if (landing_speed > lastVSpeed) {
+        landing_speed = lastVSpeed;
         changed = 1;
     }
 
-    if (landingG < lastG) {
-        landingG = lastG;
+    if (landing_G < lastG) {
+        landing_G = lastG;
         changed = 1;
     }
 
     if (changed || landMsg[0][0]) {
-        int w = printLandingMessage(landingSpeed, landingG);
+        int w = printLandingMessage(landing_speed, landing_G);
 		if (w > window_width) {
 			window_width = w;
 			XPSetWidgetGeometry(main_win, winPosX, winPosY,
@@ -522,7 +524,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 
 static void createEventWindow()
 {
-	remainingShowTime = 60.0f;
+	remaining_show_time = 60.0f;
 	window_width = STD_WINDOW_WIDTH;
 
 	int left = winPosX;
@@ -704,7 +706,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon)
 {
-    int state = getCurrentState();
+    int acf_state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	float loop_delay = 0.025f;
 
@@ -717,7 +719,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 	compute_g();
 	compute_g_lp();
 
-	if (STATE_AIR == state) {
+	if (ACF_STATE_AIR == acf_state) {
 
 		if (height > 10.0)
 			air_time += inElapsedSinceLastCall;
@@ -736,6 +738,8 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			}
 		} else if (height > 200) {
 			landing_rwy = NULL;		/* may be a go around */
+            touchdown = 0;
+            landing_dist = -1.0;
 		}
 
 		if (height > 500)
@@ -744,8 +748,8 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 
 	/* ensure we have a real flight (and not teleportation or a bumpy takeoff) */
     if (15.0 < air_time) {
-		if (0.0 < remainingUpdateTime) {
-            remainingUpdateTime -= inElapsedSinceLastCall;
+		if (0.0 < remaining_update_time) {
+            remaining_update_time -= inElapsedSinceLastCall;
 
 			/* we start we the last value prior to ground contact.
 			   This is 2 back from current at touchdown */
@@ -761,66 +765,74 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			if (20 == loops_in_touchdown)
 				createEventWindow();
 
-            if (0.0 > remainingUpdateTime) {
+            if (0.0 > remaining_update_time) {
 				dump_grec();
 
                 if (logEnabled)
                     update_landing_log();
 
-                remainingUpdateTime = 0.0;
+                remaining_update_time = 0.0;
 			}
 
 		loops_in_touchdown++;
         }
 
-        if (0.0f < remainingShowTime) {
-            remainingShowTime -= inElapsedSinceLastCall;
-            if (0.0f >= remainingShowTime)
+        if (0.0f < remaining_show_time) {
+            remaining_show_time -= inElapsedSinceLastCall;
+            if (0.0f >= remaining_show_time)
                 closeEventWindow();
         }
 
-        if (STATE_AIR == lastState && STATE_LAND == state) {
-			/* catch only first TD, i.e. no bouncing,
-			   landing_rwy can be NULL here after a teleportation or when not landing on a rwy */
-			if (landing_dist <= 0 && NULL != landing_rwy) {
+        /* catch only first TD, i.e. no bouncing,
+           landing_rwy can be NULL here after a teleportation or when not landing on a rwy */
+
+        if (!touchdown && ACF_STATE_AIR == acf_last_state && ACF_STATE_GROUND == acf_state) {
+            touchdown = 1;
+
+			if (NULL != landing_rwy) {
 				float lat = dr_getf(&lat_dr);
 				float lon = dr_getf(&lon_dr);
 
 				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-				const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
-				const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
+                
+                /* check whether we are really on a runway */
+                
+                if (point_in_poly(pos_v, landing_rwy->rwy_bbox)) {
+                    const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
+                    const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
 
-				vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
-				vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
-				landing_dist = vect2_abs(my_v);
-				double cl_len = vect2_abs(center_line_v);
-				if (cl_len > 0) {
-					vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
+                    vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
+                    vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+                    landing_dist = vect2_abs(my_v);
+                    double cl_len = vect2_abs(center_line_v);
+                    if (cl_len > 0) {
+                        vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
 
-					double dprod = vect2_dotprod(cl_unit_v, my_v);
-					vect2_t p_v = vect2_scmul(cl_unit_v, dprod);
-					vect2_t dev_v = vect2_sub(my_v, p_v);
+                        double dprod = vect2_dotprod(cl_unit_v, my_v);
+                        vect2_t p_v = vect2_scmul(cl_unit_v, dprod);
+                        vect2_t dev_v = vect2_sub(my_v, p_v);
 
-					/* get signed deviation, + -> right, - -> left */
-					landing_cl_delta = vect2_abs(dev_v);
-					double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
-					/* by sign of cross product */
-					landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
+                        /* get signed deviation, + -> right, - -> left */
+                        landing_cl_delta = vect2_abs(dev_v);
+                        double xprod_z = my_v.x * cl_unit_v.y - my_v.y * cl_unit_v.x;
+                        /* by sign of cross product */
+                        landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
 
-					/* angle between cl and my heading */
-					landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
-				}
+                        /* angle between cl and my heading */
+                        landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
+                    }
+                } else {
+                    landing_dist = -1.0;  /* did not land on runway */
+                }
+                
 			}
 
-			/* only on first bounce */
-			if (remainingUpdateTime <= 0.0f) {
-				remainingUpdateTime = 3.0f;
-				loops_in_touchdown = 0;
-			}
+            remaining_update_time = 3.0f;
+            loops_in_touchdown = 0;
 		}
     }
 
-    lastState = state;
+    acf_last_state = acf_state;
     return loop_delay;
 }
 
