@@ -156,7 +156,6 @@ static void loadConfig()
 }
 
 
-
 static void updateLogItemState()
 {
     XPLMCheckMenuItem(xgsMenu, enableLogItem,
@@ -169,8 +168,6 @@ static void xgsMenuCallback(void *menuRef, void *param)
     logEnabled = ! logEnabled;
     updateLogItemState();
 }
-
-
 
 
 static void trim(char *str)
@@ -198,7 +195,7 @@ static void update_landing_log()
     f = fopen(buf, "a");
     if (! f) return;
 
-    /* in case we don't fixed a runway... */
+    /* in case we didn't fix a runway... */
     float lat = dr_getf(&lat_dr);
     float lon = dr_getf(&lon_dr);
     XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL, xplm_Nav_Airport);
@@ -211,8 +208,6 @@ static void update_landing_log()
     }
 
     time_t now = time(NULL);
-
-
     strftime(buf, sizeof buf, "%c", localtime(&now));
     fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, logAircraftIcao, logAircraftNum,
                 airport_id, landing_speed,
@@ -325,6 +320,7 @@ static int load_rating_cfg(const char *path)
 
     return 0;
 }
+
 
 /* plugin entry points */
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
@@ -493,6 +489,7 @@ static void updateLandingResult()
 	}
 }
 
+
 static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1, intptr_t param2)
 {
 	if (widget_id == main_win) {
@@ -551,6 +548,7 @@ static void createEventWindow()
 	XPShowWidget(main_win);
 }
 
+
 static void get_near_airports()
 {
 	ASSERT(NULL == landing_rwy);
@@ -565,6 +563,7 @@ static void get_near_airports()
 
 	near_airports = find_nearest_airports(&airportdb, my_pos);
 }
+
 
 /*
  * Catch the transition into the rwy_bbox of the nearest threshold.
@@ -629,6 +628,7 @@ static void fix_landing_rwy()
 	}
 }
 
+
 #ifdef DEBUG_G_LP
 
 /* put values in CSV format into log so it can be grepped out easily */
@@ -667,6 +667,7 @@ static void record_grec(const ts_val_t *p)
 #define record_grec(p) do {} while(0)
 #endif
 
+
 /* g as derivative of vy per second order approximation */
 static void compute_g()
 {
@@ -701,6 +702,7 @@ static void compute_g_lp()
 
 	p[G_LP_ORDER - 2]->g_lp = sum / (p[G_LP_ORDER]->ts - p[0]->ts);
 }
+
 
 static float gameLoopCallback(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -794,9 +796,9 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 				float lon = dr_getf(&lon_dr);
 
 				vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
-                
+
                 /* check whether we are really on a runway */
-                
+
                 if (point_in_poly(pos_v, landing_rwy->rwy_bbox)) {
                     const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
                     const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
@@ -824,7 +826,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
                 } else {
                     landing_dist = -1.0;  /* did not land on runway */
                 }
-                
+
 			}
 
             remaining_update_time = 3.0f;
