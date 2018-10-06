@@ -60,7 +60,7 @@ static int enableLogItem;
 static int logEnabled = 0;
 
 static char logAircraftNum[50];
-static char logAircraftIcao[40];
+static char acf_icao[40];
 
 typedef struct rating_ { float limit; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
@@ -79,7 +79,7 @@ static rating_t cfg_rating[NRATING];
 static rating_t *rating = std_rating;
 static int window_width;
 
-static char xpdir[512] = { 0 };
+static char xpdir[512];
 static const char *psep;
 
 static airportdb_t airportdb;
@@ -209,7 +209,7 @@ static void update_landing_log()
 
     time_t now = time(NULL);
     strftime(buf, sizeof buf, "%c", localtime(&now));
-    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, logAircraftIcao, logAircraftNum,
+    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, acf_icao, logAircraftNum,
                 airport_id, landing_speed,
                 landing_speed * MS_2_FPM, landing_G);
 
@@ -261,7 +261,6 @@ static int load_rating_cfg(const char *path)
 
         while (fgets(line, sizeof line, f) && i < NRATING) {
             if (line[0] == '#') continue;
-            line[sizeof(line) -1 ] = '\0';
             trim(line);
             if ('\0' == line[0])
                 continue;
@@ -319,6 +318,45 @@ static int load_rating_cfg(const char *path)
     }
 
     return 0;
+}
+
+
+static int map_acf_to_cfg(const char *acf, const char *map_path, char *cfg_name)
+{
+    logMsg("trying to map '%s' to cfg", acf);
+
+    FILE *f = fopen(map_path, "r");
+
+    if (NULL == f) {
+        logMsg("mapping file '%s' don't exist", map_path);
+        return 0;
+    }
+
+    char line[200];
+
+    int ret = 0;
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') continue;
+        trim(line);
+        if ('\0' == line[0])
+            continue;
+
+        char *cptr = strchr(line, ' ');
+        if (NULL == cptr) {
+            logMsg("bad line: %s", line);
+            continue;
+        }
+
+        *cptr++ = '\0';
+        if (0 == strcmp(acf, line)) {
+            strcpy(cfg_name, cptr);
+            ret = 1;
+            break;
+        }
+    }
+
+    fclose(f);
+    return ret;
 }
 
 
@@ -399,8 +437,8 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
         int n = XPLMGetDatab(craftNumRef, logAircraftNum, 0, 49);
         logAircraftNum[n] = '\0';
 
-        n = XPLMGetDatab(icaoRef, logAircraftIcao, 0, 39);
-        logAircraftIcao[n] = '\0';
+        n = XPLMGetDatab(icaoRef, acf_icao, 0, 39);
+        acf_icao[n] = '\0';
 
         char path[512];
         char acf_file[256];
@@ -417,10 +455,17 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
                 return;
         }
 
-        /* try system wide config */
-        snprintf(path, sizeof path, "%sResources%splugins%sxgs%sstd_xgs_rating.cfg",
+        char plugin_path[512];
+        snprintf(plugin_path, sizeof plugin_path, "%sResources%splugins%sxgs%s",
                  xpdir, psep, psep, psep);
 
+         /* try mapping */
+        strcpy(path, plugin_path); strcat(path, "acf_mapping.cfg");
+        if (map_acf_to_cfg(acf_icao, path, &path[strlen(plugin_path)]) && load_rating_cfg(path))
+            return;
+
+        /* try system wide config */
+        strcpy(path, plugin_path); strcat(path, "std_xgs_rating.cfg");
         if (load_rating_cfg(path))
             return;
     }
