@@ -806,15 +806,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 
 	float height = dr_getf(&y_agl_dr);
     
-	ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
-    ts_vy[ts_val_cur].ts = timeFromStart;
-	ts_vy[ts_val_cur].vy = dr_getf(&vy_dr);
-
-	compute_g();
-	compute_g_lp();
-
 	if (ACF_STATE_AIR == acf_state) {
-
 		if (height > 10.0)
 			air_time += inElapsedSinceLastCall;
 
@@ -841,7 +833,14 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 	}
 
 	/* ensure we have a real flight (and not teleportation or a bumpy takeoff) */
-    if (15.0 < air_time) {
+    if (15.0 < air_time && height < 20) {
+        ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
+        ts_vy[ts_val_cur].ts = timeFromStart;
+        ts_vy[ts_val_cur].vy = dr_getf(&vy_dr);
+
+        compute_g();
+        compute_g_lp();
+
 		if (0.0 < remaining_update_time) {
             remaining_update_time -= inElapsedSinceLastCall;
 
