@@ -23,7 +23,7 @@
 
 #define VERSION "3.1b1"
 
-static float gameLoopCallback(float inElapsedSinceLastCall,
+static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon);
 
@@ -45,12 +45,12 @@ static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
 
 static char landMsg[N_WIN_LINE][100];
 static int acf_last_state;
-static float landing_speed = 0.0f;
-static float lastVSpeed = 0.0f;
-static float landing_G = 0.0f;
-static float lastG = 0.0f;
-static float remaining_show_time = 0.0f;
-static float remaining_update_time = 0.0f;
+static float landing_speed;
+static float lastVSpeed;
+static float landing_G;
+static float lastG;
+static float remaining_show_time;
+static float remaining_update_time;
 static float air_time;
 
 static int winPosX = 20;
@@ -389,7 +389,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
 	dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
 
-    XPLMRegisterFlightLoopCallback(gameLoopCallback, 0.05f, NULL);
+    XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
 
     pluginsMenu = XPLMFindPluginsMenu();
     subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
@@ -790,16 +790,22 @@ static void record_touchdown()
 }
 
 
-static float gameLoopCallback(float inElapsedSinceLastCall,
+static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon)
 {
+    if (0.0f < remaining_show_time) {
+        remaining_show_time -= inElapsedSinceLastCall;
+        if (0.0f >= remaining_show_time)
+            closeEventWindow();
+    }
+
     int acf_state = getCurrentState();
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	float loop_delay = 0.025f;
 
 	float height = dr_getf(&y_agl_dr);
-
+    
 	ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
     ts_vy[ts_val_cur].ts = timeFromStart;
 	ts_vy[ts_val_cur].vy = dr_getf(&vy_dr);
@@ -863,12 +869,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
 			}
 
 		loops_in_touchdown++;
-        }
-
-        if (0.0f < remaining_show_time) {
-            remaining_show_time -= inElapsedSinceLastCall;
-            if (0.0f >= remaining_show_time)
-                closeEventWindow();
+        loop_delay = -1.0;  /* highest resolution */
         }
 
         /* catch only first TD, i.e. no bouncing,
@@ -879,6 +880,7 @@ static float gameLoopCallback(float inElapsedSinceLastCall,
             record_touchdown();
             remaining_update_time = 3.0f;
             loops_in_touchdown = 0;
+            loop_delay = -1.0;  /* highest resolution */
 		}
     }
 
