@@ -29,6 +29,8 @@
 *.log
 *.sql
 *.sqlite
+*.pdf
+.~lock.*\#
 
 # OS generated files #
 ######################

@@ -38,4 +38,4 @@ install: $(TARGET)
 plugin: $(TARGET)
 	mkdir -p "$(PLUGDIR)/64"
 	cp -p $(TARGET) "$(PLUGDIR)/64"
-	cp -p *.cfg "$(PLUGDIR)"
+	cp -p *.cfg *.pdf "$(PLUGDIR)"
