@@ -546,7 +546,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 		return 0;
 	}
 
-	/* for the custom widget */
+	/* for the embedded custom widget */
 	if (xpMsg_Draw == msg) {
 		int left, top;
 		XPGetWidgetGeometry(widget_id, &left, &top, NULL, NULL);
