@@ -41,10 +41,11 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 static XPWidgetID main_win;
 static XPLMDataRef gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
-static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
+static dr_t lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr;
 
 static char landMsg[N_WIN_LINE][100];
-static geo_pos2_t cur_pos, last_pos;
+static geo_pos3_t cur_pos, last_pos;
+static vect3_t last_pos_v;
 
 static int acf_last_state;
 static float landing_speed;
@@ -390,6 +391,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
 	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
 	dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
+    dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
 
     XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
 
@@ -603,10 +605,10 @@ static void get_near_airports()
 	if (near_airports)
 		free_nearest_airport_list(near_airports);
 
-	load_nearest_airport_tiles(&airportdb, cur_pos);
-	unload_distant_airport_tiles(&airportdb, cur_pos);
+	load_nearest_airport_tiles(&airportdb, GEO3_TO_GEO2(cur_pos));
+	unload_distant_airport_tiles(&airportdb, GEO3_TO_GEO2(cur_pos));
 
-	near_airports = find_nearest_airports(&airportdb, cur_pos);
+	near_airports = find_nearest_airports(&airportdb, GEO3_TO_GEO2(cur_pos));
 }
 
 
@@ -636,7 +638,7 @@ static void fix_landing_rwy()
 		arpt != NULL; arpt = list_next(near_airports, arpt)) {
 		ASSERT(arpt->load_complete);
 
-		vect2_t pos_v = geo2fpp(cur_pos, &arpt->fpp);
+		vect2_t pos_v = geo2fpp(GEO3_TO_GEO2(cur_pos), &arpt->fpp);
 
 		for (const runway_t *rwy = avl_first(&arpt->rwys); rwy != NULL;
 			rwy = AVL_NEXT(&arpt->rwys, rwy)) {
@@ -750,7 +752,7 @@ static void compute_g_lp()
 static void record_touchdown()
 {
     if (NULL != landing_rwy) {
-        vect2_t pos_v = geo2fpp(cur_pos, &landing_rwy->arpt->fpp);
+        vect2_t pos_v = geo2fpp(GEO3_TO_GEO2(cur_pos), &landing_rwy->arpt->fpp);
 
         /* check whether we are really on a runway */
 
@@ -789,19 +791,28 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon)
 {
+    float timeFromStart = XPLMGetDataf(flightTimeRef);
+	float loop_delay = 0.025f;
+
+	cur_pos = GEO_POS3(dr_getf(&lat_dr), dr_getf(&lon_dr), dr_getf(&elevation_dr));
+	float height = dr_getf(&y_agl_dr);
+
+    vect3_t cur_pos_v = sph2ecef(cur_pos);
+
+    /* if we go supersonic it's a teleportation */
+    int teleportation = (vect3_dist(cur_pos_v, last_pos_v) / inElapsedSinceLastCall > 340.0);
+    if (teleportation)
+        logMsg("Teleportation detected");
+
+    /* independent of state */
     if (0.0f < remaining_show_time) {
         remaining_show_time -= inElapsedSinceLastCall;
-        if (0.0f >= remaining_show_time)
+        if (teleportation || (0.0f >= remaining_show_time))
             closeEventWindow();
     }
 
     int acf_state = getCurrentState();
-    float timeFromStart = XPLMGetDataf(flightTimeRef);
-	float loop_delay = 0.025f;
 
-	cur_pos = GEO_POS2(dr_getf(&lat_dr), dr_getf(&lon_dr));
-	float height = dr_getf(&y_agl_dr);
-    
 	if (ACF_STATE_AIR == acf_state) {
 		if (height > 10.0)
 			air_time += inElapsedSinceLastCall;
@@ -881,5 +892,6 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 
     acf_last_state = acf_state;
     last_pos = cur_pos;
+    last_pos_v = cur_pos_v;
     return loop_delay;
 }
