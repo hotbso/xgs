@@ -44,6 +44,8 @@ static XPLMDataRef craftNumRef, icaoRef;
 static dr_t lat_dr, lon_dr, y_agl_dr, hdg_dr, vy_dr;
 
 static char landMsg[N_WIN_LINE][100];
+static geo_pos2_t cur_pos, last_pos;
+
 static int acf_last_state;
 static float landing_speed;
 static float lastVSpeed;
@@ -196,8 +198,8 @@ static void update_landing_log()
     if (! f) return;
 
     /* in case we didn't fix a runway... */
-    float lat = dr_getf(&lat_dr);
-    float lon = dr_getf(&lon_dr);
+    float lat = cur_pos.lat;
+    float lon = cur_pos.lon;
     XPLMNavRef ref = XPLMFindNavAid(NULL, NULL, &lat, &lon, NULL, xplm_Nav_Airport);
 
     if (XPLM_NAV_NOT_FOUND != ref) {
@@ -601,12 +603,10 @@ static void get_near_airports()
 	if (near_airports)
 		free_nearest_airport_list(near_airports);
 
-	geo_pos2_t my_pos;
-	my_pos = GEO_POS2(dr_getf(&lat_dr), dr_getf(&lon_dr));
-	load_nearest_airport_tiles(&airportdb, my_pos);
-	unload_distant_airport_tiles(&airportdb, my_pos);
+	load_nearest_airport_tiles(&airportdb, cur_pos);
+	unload_distant_airport_tiles(&airportdb, cur_pos);
 
-	near_airports = find_nearest_airports(&airportdb, my_pos);
+	near_airports = find_nearest_airports(&airportdb, cur_pos);
 }
 
 
@@ -622,8 +622,6 @@ static void fix_landing_rwy()
 
 	double thresh_dist_min = 1.0E12;
 
-	float lat = dr_getf(&lat_dr);
-	float lon = dr_getf(&lon_dr);
 	float hdg = dr_getf(&hdg_dr);
 
 	int in_rwy_bb = 0;
@@ -638,7 +636,7 @@ static void fix_landing_rwy()
 		arpt != NULL; arpt = list_next(near_airports, arpt)) {
 		ASSERT(arpt->load_complete);
 
-		vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &arpt->fpp);
+		vect2_t pos_v = geo2fpp(cur_pos, &arpt->fpp);
 
 		for (const runway_t *rwy = avl_first(&arpt->rwys); rwy != NULL;
 			rwy = AVL_NEXT(&arpt->rwys, rwy)) {
@@ -752,10 +750,7 @@ static void compute_g_lp()
 static void record_touchdown()
 {
     if (NULL != landing_rwy) {
-        float lat = dr_getf(&lat_dr);
-        float lon = dr_getf(&lon_dr);
-
-        vect2_t pos_v = geo2fpp(GEO_POS2(lat, lon), &landing_rwy->arpt->fpp);
+        vect2_t pos_v = geo2fpp(cur_pos, &landing_rwy->arpt->fpp);
 
         /* check whether we are really on a runway */
 
@@ -804,6 +799,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	float loop_delay = 0.025f;
 
+	cur_pos = GEO_POS2(dr_getf(&lat_dr), dr_getf(&lon_dr));
 	float height = dr_getf(&y_agl_dr);
     
 	if (ACF_STATE_AIR == acf_state) {
@@ -884,5 +880,6 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     }
 
     acf_last_state = acf_state;
+    last_pos = cur_pos;
     return loop_delay;
 }
