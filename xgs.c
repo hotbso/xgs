@@ -21,7 +21,7 @@
 #include <acfutils/airportdb.h>
 #include <acfutils/dr.h>
 
-#define VERSION "3.10"
+#define VERSION "3.11-debug"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -38,6 +38,9 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 #define SIDE_MARGIN 10
 
 #define N_WIN_LINE 7
+static int xgs_enabled = 0;
+static int xgs_inited = 0;
+
 static XPWidgetID main_win;
 static XPLMDataRef gearKoofRef, flightTimeRef;
 static XPLMDataRef craftNumRef, icaoRef;
@@ -366,9 +369,6 @@ static int map_acf_to_cfg(const char *acf, const char *map_path, char *cfg_name)
 /* plugin entry points */
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
-    XPLMMenuID pluginsMenu;
-    int subMenuItem;
-
  	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 	log_init(XPLMDebugString, "xgs");
@@ -380,58 +380,70 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     strcpy(outName, "Landing Speed " VERSION);
     strcpy(outSig, "babichev.landspeed - hotbso");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
-
-    gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
-    flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
-	icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-    craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
-
-	dr_find(&lat_dr, "sim/flightmodel/position/latitude");
-    dr_find(&lon_dr, "sim/flightmodel/position/longitude");
-    dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
-	dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-	dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
-    dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
-
-    XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
-
-    pluginsMenu = XPLMFindPluginsMenu();
-    subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
-    xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
-                xgsMenuCallback, NULL);
-    enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
-    updateLogItemState();
-
-	char cache_path[512];
-	sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
-	airportdb_create(&airportdb, xpdir, cache_path);
-	if (!recreate_cache(&airportdb)) {
-		logMsg("recreate_cache failed");
-		goto error;
-	}
-
     return 1;
-
-  error:
-	return 0;
-}
-
-
-PLUGIN_API void	XPluginStop(void)
-{
-    closeEventWindow();
-    saveConfig();
 }
 
 
 PLUGIN_API void XPluginDisable(void)
 {
+    if (xgs_enabled) {
+        closeEventWindow();
+        saveConfig();
+    }
+
+    logMsg("xgs disabled");
+    xgs_enabled = 0;
 }
 
 
 PLUGIN_API int XPluginEnable(void)
 {
-	return 1;
+    if (!xgs_inited) {
+        XPLMMenuID pluginsMenu;
+        int subMenuItem;
+
+        gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
+        flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
+        icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+        craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+
+        dr_find(&lat_dr, "sim/flightmodel/position/latitude");
+        dr_find(&lon_dr, "sim/flightmodel/position/longitude");
+        dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
+        dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
+        dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
+        dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
+
+        XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
+
+        pluginsMenu = XPLMFindPluginsMenu();
+        subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
+        xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
+                    xgsMenuCallback, NULL);
+        enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
+        updateLogItemState();
+
+        char cache_path[512];
+        sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
+        airportdb_create(&airportdb, xpdir, cache_path);
+        if (!recreate_cache(&airportdb)) {
+            logMsg("recreate_cache failed");
+            return 0;
+        }
+
+        xgs_inited = 1;
+        logMsg("xgs initialized");
+        }
+
+    logMsg("xgs enabled");
+    xgs_enabled = 1;
+    return 1;
+}
+
+
+PLUGIN_API void	XPluginStop(void)
+{
+    XPluginDisable();       /* just in case */
 }
 
 
@@ -791,6 +803,9 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon)
 {
+    if (! xgs_enabled)
+        return 2.0;
+
     float timeFromStart = XPLMGetDataf(flightTimeRef);
 	float loop_delay = 0.025f;
 
