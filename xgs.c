@@ -38,8 +38,9 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 #define SIDE_MARGIN 10
 
 #define N_WIN_LINE 7
-static int xgs_enabled = 0;
-static int xgs_inited = 0;
+static int xgs_enabled;
+static int init_done;
+static int init_failure;
 
 static XPWidgetID main_win;
 static XPLMDataRef gearKoofRef, flightTimeRef;
@@ -369,9 +370,11 @@ static int map_acf_to_cfg(const char *acf, const char *map_path, char *cfg_name)
 /* plugin entry points */
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
+	log_init(XPLMDebugString, "xgs");
+    logMsg("startup " VERSION);
+
  	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
-	log_init(XPLMDebugString, "xgs");
 
     psep = XPLMGetDirectorySeparator();
 	XPLMGetSystemPath(xpdir);
@@ -391,49 +394,55 @@ PLUGIN_API void XPluginDisable(void)
         saveConfig();
     }
 
-    logMsg("xgs disabled");
+    logMsg("disabled");
     xgs_enabled = 0;
 }
 
 
 PLUGIN_API int XPluginEnable(void)
 {
-    if (!xgs_inited) {
-        XPLMMenuID pluginsMenu;
-        int subMenuItem;
+    if (!init_done) {
 
-        gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
-        flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
-        icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-        craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
-
-        dr_find(&lat_dr, "sim/flightmodel/position/latitude");
-        dr_find(&lon_dr, "sim/flightmodel/position/longitude");
-        dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
-        dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-        dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
-        dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
-
-        XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
-
-        pluginsMenu = XPLMFindPluginsMenu();
-        subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
-        xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
-                    xgsMenuCallback, NULL);
-        enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
-        updateLogItemState();
+        init_done = 1;      /* one time only */
 
         char cache_path[512];
         sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
+        fix_pathsep(cache_path);                        /* libacfutils requires a canonical path sep */
         airportdb_create(&airportdb, xpdir, cache_path);
-        if (!recreate_cache(&airportdb)) {
-            logMsg("recreate_cache failed");
-            return 0;
-        }
+        airportdb.ifr_only = B_FALSE;
 
-        xgs_inited = 1;
-        logMsg("xgs initialized");
+        if (!recreate_cache(&airportdb)) {
+            logMsg("init failure: recreate_cache failed");
+            init_failure = 1;
+        } else {
+            gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
+            flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
+            icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+            craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+
+            dr_find(&lat_dr, "sim/flightmodel/position/latitude");
+            dr_find(&lon_dr, "sim/flightmodel/position/longitude");
+            dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
+            dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
+            dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
+            dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
+
+            XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
+
+            XPLMMenuID pluginsMenu = XPLMFindPluginsMenu();
+            int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
+            xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
+                        xgsMenuCallback, NULL);
+            enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
+            updateLogItemState();
+            logMsg("initialized");
         }
+    }
+
+    if (init_failure) {
+        logMsg("init failed, can't enable");
+        return 0;
+    }
 
     logMsg("xgs enabled");
     xgs_enabled = 1;
