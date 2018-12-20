@@ -616,6 +616,12 @@ static void createEventWindow()
 
 	updateLandingResult();
    	XPShowWidget(main_widget);
+    int in_vr = (NULL != vr_enabled_dr) && XPLMGetDatai(vr_enabled_dr);
+    if (in_vr) {
+        logMsg("VR mode detected");
+        XPLMWindowID window =  XPGetWidgetUnderlyingWindow(main_widget);
+        XPLMSetWindowPositioningMode(window, xplm_WindowVR, -1);
+    }
 }
 
 
