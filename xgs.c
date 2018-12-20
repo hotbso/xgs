@@ -19,9 +19,8 @@
 
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
-#include <acfutils/dr.h>
 
-#define VERSION "3.12"
+#define VERSION "3.20-dev"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -42,10 +41,9 @@ static int xgs_enabled;
 static int init_done;
 static int init_failure;
 
-static XPWidgetID main_win;
-static XPLMDataRef gearKoofRef, flightTimeRef;
-static XPLMDataRef craftNumRef, icaoRef;
-static dr_t lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr;
+static XPWidgetID main_widget;
+static XPLMDataRef gear_faxil_dr, flight_time_dr, acf_num_dr, icao_dr,
+        lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr;
 
 static char landMsg[N_WIN_LINE][100];
 static geo_pos3_t cur_pos, last_pos;
@@ -238,9 +236,9 @@ static void update_landing_log()
 
 static void closeEventWindow()
 {
-    if (main_win) {
-		XPGetWidgetGeometry(main_win, &winPosX, &winPosY, NULL, NULL);
-		XPHideWidget(main_win);
+    if (main_widget) {
+		XPGetWidgetGeometry(main_widget, &winPosX, &winPosY, NULL, NULL);
+		XPHideWidget(main_widget);
     }
 
     landing_speed = 0.0f;
@@ -375,6 +373,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
  	/* Always use Unix-native paths on the Mac! */
 	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+    XPLMEnableFeature("XPLM_USE_NATIVE_WIDGET_WINDOWS", 1);
 
     psep = XPLMGetDirectorySeparator();
 	XPLMGetSystemPath(xpdir);
@@ -415,17 +414,18 @@ PLUGIN_API int XPluginEnable(void)
             logMsg("init failure: recreate_cache failed");
             init_failure = 1;
         } else {
-            gearKoofRef = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
-            flightTimeRef = XPLMFindDataRef("sim/time/total_flight_time_sec");
-            icaoRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-            craftNumRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+            gear_faxil_dr = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
+            flight_time_dr = XPLMFindDataRef("sim/time/total_flight_time_sec");
+            icao_dr = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+            acf_num_dr = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
 
-            dr_find(&lat_dr, "sim/flightmodel/position/latitude");
-            dr_find(&lon_dr, "sim/flightmodel/position/longitude");
-            dr_find(&y_agl_dr, "sim/flightmodel/position/y_agl");
-            dr_find(&hdg_dr, "sim/flightmodel/position/true_psi");
-            dr_find(&vy_dr, "sim/flightmodel/position/vh_ind");
-            dr_find(&elevation_dr, "sim/flightmodel/position/elevation");
+            lat_dr = XPLMFindDataRef("sim/flightmodel/position/latitude");
+            lon_dr = XPLMFindDataRef("sim/flightmodel/position/longitude");
+            y_agl_dr = XPLMFindDataRef("sim/flightmodel/position/y_agl");
+            hdg_dr = XPLMFindDataRef("sim/flightmodel/position/true_psi");
+            vy_dr = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
+            elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
+            vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
 
             XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
 
@@ -459,10 +459,10 @@ PLUGIN_API void	XPluginStop(void)
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 {
 	if ((XPLM_MSG_PLANE_LOADED == msg) && (0 == param)) {
-        int n = XPLMGetDatab(craftNumRef, logAircraftNum, 0, 49);
+        int n = XPLMGetDatab(acf_num_dr, logAircraftNum, 0, 49);
         logAircraftNum[n] = '\0';
 
-        n = XPLMGetDatab(icaoRef, acf_icao, 0, 39);
+        n = XPLMGetDatab(icao_dr, acf_icao, 0, 39);
         acf_icao[n] = '\0';
 
         char path[512];
@@ -499,7 +499,7 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 
 static int getCurrentState()
 {
-    return 0.0f != XPLMGetDataf(gearKoofRef) ? ACF_STATE_GROUND : ACF_STATE_AIR;
+    return 0.0f != XPLMGetDataf(gear_faxil_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
 }
 
 
@@ -553,7 +553,7 @@ static void updateLandingResult()
         int w = printLandingMessage(landing_speed, landing_G);
 		if (w > window_width) {
 			window_width = w;
-			XPSetWidgetGeometry(main_win, winPosX, winPosY,
+			XPSetWidgetGeometry(main_widget, winPosX, winPosY,
                     winPosX + window_width, winPosY - WINDOW_HEIGHT);
 		}
 	}
@@ -562,7 +562,7 @@ static void updateLandingResult()
 
 static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1, intptr_t param2)
 {
-	if (widget_id == main_win) {
+	if (widget_id == main_widget) {
 		if (msg == xpMessage_CloseButtonPushed) {
 			closeEventWindow();
 			return 1;
@@ -597,25 +597,25 @@ static void createEventWindow()
 	int left = winPosX;
 	int top = winPosY;
 
-	if (NULL == main_win) {
-		main_win = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
+	if (NULL == main_widget) {
+		main_widget = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
 			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
-		XPSetWidgetProperty(main_win, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
-		XPSetWidgetProperty(main_win, xpProperty_MainWindowHasCloseBoxes, 1);
-		XPAddWidgetCallback(main_win, widget_cb);
+		XPSetWidgetProperty(main_widget, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
+		XPSetWidgetProperty(main_widget, xpProperty_MainWindowHasCloseBoxes, 1);
+		XPAddWidgetCallback(main_widget, widget_cb);
 
 		left += SIDE_MARGIN; top -= 20;
 		(void)XPCreateCustomWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
-			1, "", 0, main_win, widget_cb);
+			1, "", 0, main_widget, widget_cb);
 
 	} else {
 		/* reset to standard width */
-		XPSetWidgetGeometry(main_win, winPosX, winPosY,
+		XPSetWidgetGeometry(main_widget, winPosX, winPosY,
 							winPosX + STD_WINDOW_WIDTH, winPosY - WINDOW_HEIGHT);
 	}
 
 	updateLandingResult();
-	XPShowWidget(main_win);
+   	XPShowWidget(main_widget);
 }
 
 
@@ -645,7 +645,7 @@ static void fix_landing_rwy()
 
 	double thresh_dist_min = 1.0E12;
 
-	float hdg = dr_getf(&hdg_dr);
+	float hdg = XPLMGetDataf(hdg_dr);
 
 	int in_rwy_bb = 0;
 	const airport_t *min_arpt;
@@ -688,7 +688,7 @@ static void fix_landing_rwy()
 	if (in_rwy_bb) {
 		landing_rwy = min_rwy;
 		landing_rwy_end = min_end;
-		landing_cross_height = dr_getf(&y_agl_dr);
+		landing_cross_height = XPLMGetDataf(y_agl_dr);
 		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f",
 			   min_arpt->icao, landing_rwy->ends[landing_rwy_end].id, thresh_dist_min);
 	}
@@ -799,7 +799,7 @@ static void record_touchdown()
                 landing_cl_delta = xprod_z > 0 ? landing_cl_delta : -landing_cl_delta;
 
                 /* angle between cl and my heading */
-                landing_cl_angle = rel_hdg(near_end->hdg, dr_getf(&hdg_dr));
+                landing_cl_angle = rel_hdg(near_end->hdg, XPLMGetDataf(hdg_dr));
             }
         } else {
             landing_dist = -1.0;  /* did not land on runway */
@@ -815,11 +815,11 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     if (! xgs_enabled)
         return 2.0;
 
-    float timeFromStart = XPLMGetDataf(flightTimeRef);
+    float timeFromStart = XPLMGetDataf(flight_time_dr);
 	float loop_delay = 0.025f;
 
-	cur_pos = GEO_POS3(dr_getf(&lat_dr), dr_getf(&lon_dr), dr_getf(&elevation_dr));
-	float height = dr_getf(&y_agl_dr);
+	cur_pos = GEO_POS3(XPLMGetDataf(lat_dr), XPLMGetDataf(lon_dr), XPLMGetDataf(elevation_dr));
+	float height = XPLMGetDataf(y_agl_dr);
 
     vect3_t cur_pos_v = sph2ecef(cur_pos);
 
@@ -867,7 +867,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     if (15.0 < air_time && height < 20) {
         ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
         ts_vy[ts_val_cur].ts = timeFromStart;
-        ts_vy[ts_val_cur].vy = dr_getf(&vy_dr);
+        ts_vy[ts_val_cur].vy = XPLMGetDataf(vy_dr);
 
         compute_g();
         compute_g_lp();
