@@ -6,8 +6,8 @@ HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 
-OSXC=-arch x86_64 -mmacosx-version-min=10.7 
-OSXL=-arch x86_64 -mmacosx-version-min=10.7
+OSXC=-arch x86_64 -mmacosx-version-min=10.9
+OSXL=-arch x86_64 -mmacosx-version-min=10.9
 
 DEFS= -DAPL=1 -DXPLM200 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG
 
@@ -21,10 +21,9 @@ all: $(TARGET)
 
 .c.o:
 	$(CC) $(CFLAGS) -c $<
-	
+
 $(TARGET): $(OBJECTS)
 	$(CC) -o $(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)
-
