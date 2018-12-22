@@ -58,8 +58,9 @@ static float remaining_show_time;
 static float remaining_update_time;
 static float air_time;
 
-static int winPosX = 20;
-static int winPosY = 600;
+static int win_pos_x = 20;
+static int win_pos_y = 600;
+static int widget_in_vr;
 static XPLMMenuID xgsMenu = NULL;
 static int enableLogItem;
 static int logEnabled = 0;
@@ -141,7 +142,7 @@ static void saveConfig()
     if (! f)
         return;
 
-    fprintf(f, "%i %i %i", winPosX, winPosY, logEnabled);
+    fprintf(f, "%i %i %i", win_pos_x, win_pos_y, logEnabled);
 
     fclose(f);
 }
@@ -155,7 +156,7 @@ static void loadConfig()
     if (! f)
         return;
 
-    fscanf(f, "%i %i %i", &winPosX, &winPosY, &logEnabled);
+    fscanf(f, "%i %i %i", &win_pos_x, &win_pos_y, &logEnabled);
 
     fclose(f);
 }
@@ -237,8 +238,9 @@ static void update_landing_log()
 static void closeEventWindow()
 {
     if (main_widget) {
-		XPGetWidgetGeometry(main_widget, &winPosX, &winPosY, NULL, NULL);
+        XPGetWidgetGeometry(main_widget, &win_pos_x, &win_pos_y, NULL, NULL);
 		XPHideWidget(main_widget);
+        logMsg("widget closed at (%d,%d)", win_pos_x, win_pos_y);
     }
 
     landing_speed = 0.0f;
@@ -553,8 +555,8 @@ static void updateLandingResult()
         int w = printLandingMessage(landing_speed, landing_G);
 		if (w > window_width) {
 			window_width = w;
-			XPSetWidgetGeometry(main_widget, winPosX, winPosY,
-                    winPosX + window_width, winPosY - WINDOW_HEIGHT);
+			XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
+                    win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
 		}
 	}
 }
@@ -594,8 +596,8 @@ static void createEventWindow()
 	remaining_show_time = 60.0f;
 	window_width = STD_WINDOW_WIDTH;
 
-	int left = winPosX;
-	int top = winPosY;
+	int left = win_pos_x;
+	int top = win_pos_y;
 
 	if (NULL == main_widget) {
 		main_widget = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
@@ -610,17 +612,31 @@ static void createEventWindow()
 
 	} else {
 		/* reset to standard width */
-		XPSetWidgetGeometry(main_widget, winPosX, winPosY,
-							winPosX + STD_WINDOW_WIDTH, winPosY - WINDOW_HEIGHT);
+        window_width = STD_WINDOW_WIDTH;
+		XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
+							win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
 	}
 
 	updateLandingResult();
    	XPShowWidget(main_widget);
+
     int in_vr = (NULL != vr_enabled_dr) && XPLMGetDatai(vr_enabled_dr);
     if (in_vr) {
         logMsg("VR mode detected");
         XPLMWindowID window =  XPGetWidgetUnderlyingWindow(main_widget);
         XPLMSetWindowPositioningMode(window, xplm_WindowVR, -1);
+        widget_in_vr = 1;
+    } else {
+        if (widget_in_vr) {
+            logMsg("widget now out of VR, map at (%d,%d)", win_pos_x, win_pos_y);
+            XPLMWindowID window =  XPGetWidgetUnderlyingWindow(main_widget);
+            XPLMSetWindowPositioningMode(window, xplm_WindowPositionFree, -1);
+
+            /* A resize is necessary so it shows up on the main screen again */
+            XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
+                    win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
+            widget_in_vr = 0;
+        }
     }
 }
 
