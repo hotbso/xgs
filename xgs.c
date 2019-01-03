@@ -403,6 +403,7 @@ PLUGIN_API void XPluginDisable(void)
 PLUGIN_API int XPluginEnable(void)
 {
     if (!init_done) {
+        logMsg("init start");
 
         init_done = 1;      /* one time only */
 
@@ -437,7 +438,7 @@ PLUGIN_API int XPluginEnable(void)
                         xgsMenuCallback, NULL);
             enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
             updateLogItemState();
-            logMsg("initialized");
+            logMsg("init done");
         }
     }
 
