@@ -9,7 +9,8 @@ OBJECTS=$(SOURCES:.c=.o)
 OSXC=-arch x86_64 -mmacosx-version-min=10.9
 OSXL=-arch x86_64 -mmacosx-version-min=10.9
 
-DEFS= -DAPL=1 -DXPLM200 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG
+DEFS= -DAPL=1 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG \
+    -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301
 
 CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include $(DEFS) $(OSXC)
 LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported_symbols_list -Wl,linkscript.mac
