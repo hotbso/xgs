@@ -32,11 +32,11 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 #define ACF_STATE_GROUND 1
 #define ACF_STATE_AIR 2
 
-#define WINDOW_HEIGHT 140
+#define WINDOW_HEIGHT 155
 #define STD_WINDOW_WIDTH 180
 #define SIDE_MARGIN 10
 
-#define N_WIN_LINE 7
+#define N_WIN_LINE 8
 static int xgs_enabled;
 static int init_done;
 static int init_failure;
@@ -45,15 +45,22 @@ static XPWidgetID main_widget;
 static XPLMDataRef gear_faxil_dr, flight_time_dr, acf_num_dr, icao_dr,
         lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr;
 
+/* acf specific datarefs */
+static XPLMDataRef acf_vls_dr, acf_ias_dr;
+const char *acf_ias_unit;
+
+static int get_acf_dr_done;  /* try to get acf specific vls_dr in flight_loop */
+
 static char landMsg[N_WIN_LINE][100];
 static geo_pos3_t cur_pos, last_pos;
 static vect3_t last_pos_v;
 
 static int acf_last_state;
-static float landing_speed;
-static float lastVSpeed;
+static float landing_vspeed;
+static float last_vspeed;
 static float landing_G;
 static float lastG;
+static float landing_ias, acf_vls;
 static float remaining_show_time;
 static float remaining_update_time;
 static float air_time;
@@ -62,8 +69,8 @@ static int win_pos_x = 20;
 static int win_pos_y = 600;
 static int widget_in_vr;
 static XPLMMenuID xgsMenu = NULL;
-static int enableLogItem;
-static int logEnabled = 0;
+static int enable_log_item;
+static int log_enabled = 0;
 
 static char logAircraftNum[50];
 static char acf_icao[40];
@@ -122,7 +129,7 @@ static ts_val_t ts_vy[N_TS_VY] = { {-2.0f}, {-1.0f} };
 static int ts_val_cur = 2;
 static int loops_in_touchdown;
 
-static FILE* getConfigFile(char *mode)
+static FILE* fopen_config(char *mode)
 {
     char path[512];
 
@@ -134,29 +141,29 @@ static FILE* getConfigFile(char *mode)
 }
 
 
-static void saveConfig()
+static void save_config()
 {
     FILE *f;
 
-    f = getConfigFile("w");
+    f = fopen_config("w");
     if (! f)
         return;
 
-    fprintf(f, "%i %i %i", win_pos_x, win_pos_y, logEnabled);
+    fprintf(f, "%i %i %i", win_pos_x, win_pos_y, log_enabled);
 
     fclose(f);
 }
 
 
-static void loadConfig()
+static void load_config()
 {
     FILE *f;
 
-    f = getConfigFile("r");
+    f = fopen_config("r");
     if (! f)
         return;
 
-    fscanf(f, "%i %i %i", &win_pos_x, &win_pos_y, &logEnabled);
+    fscanf(f, "%i %i %i", &win_pos_x, &win_pos_y, &log_enabled);
 
     fclose(f);
 }
@@ -164,14 +171,14 @@ static void loadConfig()
 
 static void updateLogItemState()
 {
-    XPLMCheckMenuItem(xgsMenu, enableLogItem,
-        logEnabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(xgsMenu, enable_log_item,
+        log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 }
 
 
-static void xgsMenuCallback(void *menuRef, void *param)
+static void xgs_menu_cb(void *menuRef, void *param)
 {
-    logEnabled = ! logEnabled;
+    log_enabled = ! log_enabled;
     updateLogItemState();
 }
 
@@ -216,8 +223,8 @@ static void update_landing_log()
     time_t now = time(NULL);
     strftime(buf, sizeof buf, "%c", localtime(&now));
     fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, acf_icao, logAircraftNum,
-                airport_id, landing_speed,
-                landing_speed * MS_2_FPM, landing_G);
+                airport_id, landing_vspeed,
+                landing_vspeed * MS_2_FPM, landing_G);
 
 	if (0.0 < landing_dist) {
 		fprintf(f, "Threshold %s, Above: %.f ft / %.f m, Distance: %.f ft / %.f m, from CL: %.f ft / %.f m / %.1f°, ",
@@ -235,7 +242,7 @@ static void update_landing_log()
 }
 
 
-static void closeEventWindow()
+static void close_event_window()
 {
     if (main_widget) {
         XPGetWidgetGeometry(main_widget, &win_pos_x, &win_pos_y, NULL, NULL);
@@ -243,11 +250,12 @@ static void closeEventWindow()
         logMsg("widget closed at (%d,%d)", win_pos_x, win_pos_y);
     }
 
-    landing_speed = 0.0f;
-    landing_G = 0.0f;
-    remaining_show_time = 0.0f;
-	air_time = 0.0f;
-
+    landing_vspeed = 0.0;
+    landing_G = 0.0;
+    remaining_show_time = 0.0;
+	air_time = 0.0;
+    landing_ias = 0.0;
+    acf_vls = 0.0;
 	landing_rwy = NULL;
     touchdown = 0;
     landing_dist = -1.0;
@@ -380,7 +388,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     psep = XPLMGetDirectorySeparator();
 	XPLMGetSystemPath(xpdir);
 
-    loadConfig();
+    load_config();
     strcpy(outName, "Landing Speed " VERSION);
     strcpy(outSig, "babichev.landspeed - hotbso");
     strcpy(outDesc, "A plugin that shows vertical landing speed.");
@@ -391,8 +399,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 PLUGIN_API void XPluginDisable(void)
 {
     if (xgs_enabled) {
-        closeEventWindow();
-        saveConfig();
+        close_event_window();
+        save_config();
     }
 
     logMsg("disabled");
@@ -435,8 +443,8 @@ PLUGIN_API int XPluginEnable(void)
             XPLMMenuID pluginsMenu = XPLMFindPluginsMenu();
             int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
             xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
-                        xgsMenuCallback, NULL);
-            enableLogItem = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
+                        xgs_menu_cb, NULL);
+            enable_log_item = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
             updateLogItemState();
             logMsg("init done");
         }
@@ -467,6 +475,9 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 
         n = XPLMGetDatab(icao_dr, acf_icao, 0, 39);
         acf_icao[n] = '\0';
+
+        /* can't get the dataref here because the acf's plugins are not initialized */
+        get_acf_dr_done = 0;
 
         char path[512];
         char acf_file[256];
@@ -500,13 +511,13 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 }
 
 
-static int getCurrentState()
+static int get_current_state()
 {
-    return 0.0f != XPLMGetDataf(gear_faxil_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
+    return 0.0 != XPLMGetDataf(gear_faxil_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
 }
 
 
-static int printLandingMessage(float vy, float g)
+static int print_landing_message()
 {
 	ASSERT(NULL != landing_rwy);
 
@@ -514,36 +525,40 @@ static int printLandingMessage(float vy, float g)
 
 	/* rating terminates with FLT_MAX */
 	int i = 0;
-	while (fabs(vy) > rating[i].limit) i++;
+	while (fabs(landing_vspeed) > rating[i].limit) i++;
 
     strcpy(landMsg[0], rating[i].txt);
 	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
-    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", vy * MS_2_FPM, vy);
-    sprintf(landMsg[2], "G:  %.2f", g);
+    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", landing_vspeed * MS_2_FPM, landing_vspeed);
+    i = 2;
+    if (landing_ias > 0)
+        sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s", landing_ias, acf_vls, acf_ias_unit);
+
+    sprintf(landMsg[i++], "G:  %.2f", landing_G);
 	if (landing_dist > 0.0) {
-		sprintf(landMsg[3], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
-		sprintf(landMsg[4], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
-		sprintf(landMsg[5], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
-		sprintf(landMsg[6], "from CL:  %.f ft / %.f m / %.1f°",
+		sprintf(landMsg[i++], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
+		sprintf(landMsg[i++], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
+		sprintf(landMsg[i++], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+		sprintf(landMsg[i], "from CL:  %.f ft / %.f m / %.1f°",
 							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
-		w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[6], strlen(landMsg[6])))));
+		w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[i], strlen(landMsg[i])))));
 
 	} else {
-		strcpy(landMsg[3], "Not on a runway!");
-		landMsg[4][0] = '\0';
+		strcpy(landMsg[i++], "Not on a runway!");
+		landMsg[i][0] = '\0';
 	}
 
 	return w_width;
 }
 
 
-static void updateLandingResult()
+static void update_landing_result()
 {
     int changed = 0;
 
-    if (landing_speed > lastVSpeed) {
-        landing_speed = lastVSpeed;
+    if (landing_vspeed > last_vspeed) {
+        landing_vspeed = last_vspeed;
         changed = 1;
     }
 
@@ -553,7 +568,7 @@ static void updateLandingResult()
     }
 
     if (changed || landMsg[0][0]) {
-        int w = printLandingMessage(landing_speed, landing_G);
+        int w = print_landing_message();
 		if (w > window_width) {
 			window_width = w;
 			XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
@@ -567,7 +582,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 {
 	if (widget_id == main_widget) {
 		if (msg == xpMessage_CloseButtonPushed) {
-			closeEventWindow();
+			close_event_window();
 			return 1;
 		}
 
@@ -580,7 +595,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 		XPGetWidgetGeometry(widget_id, &left, &top, NULL, NULL);
 		static float color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
 
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < N_WIN_LINE; i++) {
 			if ('\0' == landMsg[i][0])
 				break;
 
@@ -592,7 +607,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 	return 0;
 }
 
-static void createEventWindow()
+static void create_event_window()
 {
 	remaining_show_time = 60.0f;
 	window_width = STD_WINDOW_WIDTH;
@@ -618,7 +633,7 @@ static void createEventWindow()
 							win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
 	}
 
-	updateLandingResult();
+	update_landing_result();
    	XPShowWidget(main_widget);
 
     int in_vr = (NULL != vr_enabled_dr) && XPLMGetDatai(vr_enabled_dr);
@@ -714,6 +729,13 @@ static void fix_landing_rwy()
 		landing_cross_height = XPLMGetDataf(y_agl_dr);
 		logMsg("fix runway airport: %s, runway: %s, distance: %0.0f",
 			   min_arpt->icao, landing_rwy->ends[landing_rwy_end].id, thresh_dist_min);
+
+        /* get VLS now because it may be flushed on touch down */
+        if (acf_vls_dr) {
+            acf_vls = XPLMGetDataf(acf_vls_dr);
+            logMsg("ToLiss A3xx vls %0.1f", acf_vls);
+        }
+
 	}
 }
 
@@ -808,6 +830,7 @@ static void record_touchdown()
             vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
             landing_dist = vect2_abs(my_v);
             double cl_len = vect2_abs(center_line_v);
+
             if (cl_len > 0.0) {
                 vect2_t cl_unit_v = vect2_scmul(center_line_v, 1/cl_len);
 
@@ -824,12 +847,25 @@ static void record_touchdown()
                 /* angle between cl and my heading */
                 landing_cl_angle = rel_hdg(near_end->hdg, XPLMGetDataf(hdg_dr));
             }
+            if (acf_ias_dr) {
+                landing_ias = XPLMGetDataf(acf_ias_dr);
+                logMsg("ToLiss A3xx ias/vls %0.1f/%0.1f", landing_ias, acf_vls);
+            }
+
         } else {
             landing_dist = -1.0;  /* did not land on runway */
         }
     }
 }
 
+static void get_acf_dr()
+{
+    acf_ias_unit = "knts";
+    acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
+    acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
+    if (acf_ias_dr)
+        logMsg("ToLiss A3xx detected");
+}
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -852,17 +888,24 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
         logMsg("Teleportation detected");
 
     /* independent of state */
-    if (0.0f < remaining_show_time) {
+    if (0.0 < remaining_show_time) {
         remaining_show_time -= inElapsedSinceLastCall;
-        if (teleportation || (0.0f >= remaining_show_time))
-            closeEventWindow();
+        if (teleportation || (0.0 >= remaining_show_time))
+            close_event_window();
     }
 
-    int acf_state = getCurrentState();
+    int acf_state = get_current_state();
 
 	if (ACF_STATE_AIR == acf_state) {
-		if (height > 10.0)
+		if (height > 10.0) {
 			air_time += inElapsedSinceLastCall;
+
+            /* delayed per flight one time init */
+            if (!get_acf_dr_done) {
+                get_acf_dr_done = 1;             
+                get_acf_dr();
+            }
+        }
 
 		/* low, alert mode */
 		if (height < 150) {
@@ -902,20 +945,20 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 			   This is 2 back from current at touchdown */
 			if (1 <= loops_in_touchdown) {
 				const ts_val_t *tsv = &ts_vy[(ts_val_cur - 2 + N_TS_VY) % N_TS_VY];
-				lastVSpeed = tsv->vy;
+				last_vspeed = tsv->vy;
 				lastG = tsv->g_lp;
 				record_grec(tsv);
 			}
 
-			updateLandingResult();
+			update_landing_result();
 
 			if (20 == loops_in_touchdown)
-				createEventWindow();
+				create_event_window();
 
             if (0.0 > remaining_update_time) {
 				dump_grec();
 
-                if (logEnabled)
+                if (log_enabled)
                     update_landing_log();
 
                 remaining_update_time = 0.0;
