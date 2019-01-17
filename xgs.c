@@ -860,7 +860,7 @@ static void record_touchdown()
 
 static void get_acf_dr()
 {
-    acf_ias_unit = "knts";
+    acf_ias_unit = "kts";
     acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
     acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
     if (acf_ias_dr)
