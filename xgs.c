@@ -45,10 +45,13 @@ static XPWidgetID main_widget;
 static XPLMDataRef gear_faxil_dr, flight_time_dr, acf_num_dr, icao_dr,
         lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr;
 
-/* acf specific datarefs */
+/* acf specific datarefs and data */
 static XPLMDataRef acf_vls_dr, acf_ias_dr;
 const char *acf_ias_unit;
-
+static float acf_ias_conv;      /* conversion from knt to unit */
+static char acf_tailnum[50];
+static char acf_icao[40];
+static float acf_vls;
 static int get_acf_dr_done;  /* try to get acf specific vls_dr in flight_loop */
 
 static char landMsg[N_WIN_LINE][100];
@@ -60,7 +63,7 @@ static float landing_vspeed;
 static float last_vspeed;
 static float landing_G;
 static float lastG;
-static float landing_ias, acf_vls;
+static float landing_ias;
 static float remaining_show_time;
 static float remaining_update_time;
 static float air_time;
@@ -68,12 +71,10 @@ static float air_time;
 static int win_pos_x = 20;
 static int win_pos_y = 600;
 static int widget_in_vr;
-static XPLMMenuID xgsMenu = NULL;
+static XPLMMenuID xgs_menu;
 static int enable_log_item;
 static int log_enabled = 0;
 
-static char logAircraftNum[50];
-static char acf_icao[40];
 
 typedef struct rating_ { float limit; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
@@ -129,6 +130,31 @@ static ts_val_t ts_vy[N_TS_VY] = { {-2.0f}, {-1.0f} };
 static int ts_val_cur = 2;
 static int loops_in_touchdown;
 
+/* get (and set) the acf specific datarefs here in one place */
+static void get_acf_dr()
+{
+    /* default */
+    acf_ias_conv = 1.0;
+    acf_ias_unit = "kts";
+    acf_ias_dr = XPLMFindDataRef("sim/flightmodel/position/indicated_airspeed");
+
+    /* ASK21 speed is metric */
+    if (0 == strcmp(acf_icao, "AS21")) {
+        logMsg("ASK21 detected");
+        acf_ias_unit = "km/h";
+        acf_ias_conv = 1.852;
+        return;
+    }
+
+    /* try ToLiss A319 */
+    acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
+    if (acf_vls_dr) {
+        logMsg("ToLiss A3xx detected");
+        acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
+    }
+}
+
+
 static FILE* fopen_config(char *mode)
 {
     char path[512];
@@ -171,7 +197,7 @@ static void load_config()
 
 static void updateLogItemState()
 {
-    XPLMCheckMenuItem(xgsMenu, enable_log_item,
+    XPLMCheckMenuItem(xgs_menu, enable_log_item,
         log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 }
 
@@ -222,7 +248,7 @@ static void update_landing_log()
 
     time_t now = time(NULL);
     strftime(buf, sizeof buf, "%c", localtime(&now));
-    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, acf_icao, logAircraftNum,
+    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, acf_icao, acf_tailnum,
                 airport_id, landing_vspeed,
                 landing_vspeed * MS_2_FPM, landing_G);
 
@@ -442,9 +468,9 @@ PLUGIN_API int XPluginEnable(void)
 
             XPLMMenuID pluginsMenu = XPLMFindPluginsMenu();
             int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
-            xgsMenu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
+            xgs_menu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
                         xgs_menu_cb, NULL);
-            enable_log_item = XPLMAppendMenuItem(xgsMenu, "Enable Log", NULL, 1);
+            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", NULL, 1);
             updateLogItemState();
             logMsg("init done");
         }
@@ -470,8 +496,8 @@ PLUGIN_API void	XPluginStop(void)
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 {
 	if ((XPLM_MSG_PLANE_LOADED == msg) && (0 == param)) {
-        int n = XPLMGetDatab(acf_num_dr, logAircraftNum, 0, 49);
-        logAircraftNum[n] = '\0';
+        int n = XPLMGetDatab(acf_num_dr, acf_tailnum, 0, 49);
+        acf_tailnum[n] = '\0';
 
         n = XPLMGetDatab(icao_dr, acf_icao, 0, 39);
         acf_icao[n] = '\0';
@@ -532,8 +558,13 @@ static int print_landing_message()
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", landing_vspeed * MS_2_FPM, landing_vspeed);
     i = 2;
-    if (landing_ias > 0)
-        sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s", landing_ias, acf_vls, acf_ias_unit);
+    if (landing_ias > 0) {
+        if (acf_vls > 0) {
+            sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s", landing_ias * acf_ias_conv, acf_vls, acf_ias_unit);
+        } else {
+            sprintf(landMsg[i++], "IAS: %.0f %s", landing_ias * acf_ias_conv, acf_ias_unit);
+        }
+    }
 
     sprintf(landMsg[i++], "G:  %.2f", landing_G);
 	if (landing_dist > 0.0) {
@@ -847,25 +878,16 @@ static void record_touchdown()
                 /* angle between cl and my heading */
                 landing_cl_angle = rel_hdg(near_end->hdg, XPLMGetDataf(hdg_dr));
             }
-            if (acf_ias_dr) {
-                landing_ias = XPLMGetDataf(acf_ias_dr);
-                logMsg("ToLiss A3xx ias/vls %0.1f/%0.1f", landing_ias, acf_vls);
-            }
 
         } else {
             landing_dist = -1.0;  /* did not land on runway */
         }
     }
+
+    if (acf_ias_dr)
+        landing_ias = XPLMGetDataf(acf_ias_dr);
 }
 
-static void get_acf_dr()
-{
-    acf_ias_unit = "kts";
-    acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
-    acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
-    if (acf_ias_dr)
-        logMsg("ToLiss A3xx detected");
-}
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -902,7 +924,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 
             /* delayed per flight one time init */
             if (!get_acf_dr_done) {
-                get_acf_dr_done = 1;             
+                get_acf_dr_done = 1;
                 get_acf_dr();
             }
         }
