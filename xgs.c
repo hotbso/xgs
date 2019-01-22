@@ -25,6 +25,7 @@
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
                 void *inRefcon);
+static void force_widget_visible(int widget_width);
 
 #define MS_2_FPM 196.850
 #define M_2_FT 3.2808
@@ -68,8 +69,8 @@ static float remaining_show_time;
 static float remaining_update_time;
 static float air_time;
 
-static int win_pos_x = 20;
-static int win_pos_y = 600;
+static int win_pos_x;
+static int win_pos_y;
 static int widget_in_vr;
 static XPLMMenuID xgs_menu;
 static int enable_log_item;
@@ -176,7 +177,6 @@ static void save_config()
         return;
 
     fprintf(f, "%i %i %i", win_pos_x, win_pos_y, log_enabled);
-
     fclose(f);
 }
 
@@ -190,7 +190,6 @@ static void load_config()
         return;
 
     fscanf(f, "%i %i %i", &win_pos_x, &win_pos_y, &log_enabled);
-
     fclose(f);
 }
 
@@ -199,6 +198,19 @@ static void updateLogItemState()
 {
     XPLMCheckMenuItem(xgs_menu, enable_log_item,
         log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+}
+
+
+static void force_widget_visible(int widget_width)
+{
+    int screen_width, screen_height;
+    XPLMGetScreenSize(&screen_width, &screen_height);
+
+    win_pos_x = (win_pos_x < screen_width  - widget_width) ? win_pos_x : screen_width - widget_width - 50;
+    win_pos_x = (win_pos_x <= 0) ? 20 : win_pos_x;
+
+    win_pos_y = (win_pos_y < screen_height - WINDOW_HEIGHT) ? win_pos_y : (screen_height - WINDOW_HEIGHT - 50);
+    win_pos_y = (win_pos_y >= WINDOW_HEIGHT) ? win_pos_y : ((screen_height * 3) / 4);
 }
 
 
@@ -602,6 +614,7 @@ static void update_landing_result()
         int w = print_landing_message();
 		if (w > window_width) {
 			window_width = w;
+            force_widget_visible (window_width);
 			XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
                     win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
 		}
@@ -643,6 +656,8 @@ static void create_event_window()
 	remaining_show_time = 60.0f;
 	window_width = STD_WINDOW_WIDTH;
 
+    force_widget_visible(window_width);
+
 	int left = win_pos_x;
 	int top = win_pos_y;
 
@@ -680,6 +695,7 @@ static void create_event_window()
             XPLMSetWindowPositioningMode(window, xplm_WindowPositionFree, -1);
 
             /* A resize is necessary so it shows up on the main screen again */
+            force_widget_visible(window_width);
             XPSetWidgetGeometry(main_widget, win_pos_x, win_pos_y,
                     win_pos_x + window_width, win_pos_y - WINDOW_HEIGHT);
             widget_in_vr = 0;
