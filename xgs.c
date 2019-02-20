@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.20"
+#define VERSION "3.20-debug"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -681,6 +681,7 @@ static void create_event_window()
 
 	update_landing_result();
    	XPShowWidget(main_widget);
+    logMsg("widget opened at (%d,%d) width %d", win_pos_x, win_pos_y, window_width);
 
     int in_vr = (NULL != vr_enabled_dr) && XPLMGetDatai(vr_enabled_dr);
     if (in_vr) {
@@ -1015,6 +1016,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
             remaining_update_time = 3.0f;
             loops_in_touchdown = 0;
             loop_delay = -1.0;  /* highest resolution */
+            logMsg("touchdown");
 		}
     }
 
