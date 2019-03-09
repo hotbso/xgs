@@ -34,7 +34,7 @@ static void force_widget_visible(int widget_width);
 #define ACF_STATE_AIR 2
 
 #define WINDOW_HEIGHT 155
-#define STD_WINDOW_WIDTH 180
+#define STD_WINDOW_WIDTH 185
 #define SIDE_MARGIN 10
 
 #define N_WIN_LINE 8
@@ -44,7 +44,8 @@ static int init_failure;
 
 static XPWidgetID main_widget;
 static XPLMDataRef gear_faxil_dr, flight_time_dr, acf_num_dr, icao_dr,
-        lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr;
+        lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr,
+        theta_dr;
 
 /* acf specific datarefs and data */
 static XPLMDataRef acf_vls_dr, acf_ias_dr;
@@ -63,6 +64,7 @@ static int acf_last_state;
 static float landing_vspeed;
 static float last_vspeed;
 static float landing_G;
+static float landing_theta;
 static float lastG;
 static float landing_ias;
 static float remaining_show_time;
@@ -211,6 +213,8 @@ static void force_widget_visible(int widget_width)
 
     win_pos_y = (win_pos_y < screen_height - WINDOW_HEIGHT) ? win_pos_y : (screen_height - WINDOW_HEIGHT - 50);
     win_pos_y = (win_pos_y >= WINDOW_HEIGHT) ? win_pos_y : ((screen_height * 3) / 4);
+    logMsg("force_widget_visible: s: (%d,%d), ww: %d, wp: (%d, %d)",
+           screen_width, screen_height, widget_width, win_pos_x, win_pos_y);
 }
 
 
@@ -472,7 +476,9 @@ PLUGIN_API int XPluginEnable(void)
             lon_dr = XPLMFindDataRef("sim/flightmodel/position/longitude");
             y_agl_dr = XPLMFindDataRef("sim/flightmodel/position/y_agl");
             hdg_dr = XPLMFindDataRef("sim/flightmodel/position/true_psi");
-            vy_dr = XPLMFindDataRef("sim/flightmodel/position/vh_ind");
+            vy_dr = XPLMFindDataRef("sim/flightmodel/position/local_vy");
+            theta_dr = XPLMFindDataRef("sim/flightmodel/position/theta");
+
             elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
             vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
 
@@ -568,13 +574,15 @@ static int print_landing_message()
     strcpy(landMsg[0], rating[i].txt);
 	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
-    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s", landing_vspeed * MS_2_FPM, landing_vspeed);
+    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s / %.1f°", landing_vspeed * MS_2_FPM, landing_vspeed, landing_theta);
     i = 2;
     if (landing_ias > 0) {
         if (acf_vls > 0) {
-            sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s", landing_ias * acf_ias_conv, acf_vls, acf_ias_unit);
+            sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s",
+                    landing_ias * acf_ias_conv, acf_vls, acf_ias_unit);
         } else {
-            sprintf(landMsg[i++], "IAS: %.0f %s", landing_ias * acf_ias_conv, acf_ias_unit);
+            sprintf(landMsg[i++], "IAS: %.0f %s",
+                    landing_ias * acf_ias_conv, acf_ias_unit);
         }
     }
 
@@ -804,8 +812,7 @@ static void dump_grec()
 
 	for (int i = 1; i < n_grec; i++) {
 		grec_t *gr = &grec[i];
-		logMsg("grec# %f;%f;%f", gr->t - tstart, gr->v * MS_2_FPM, gr->g);
-		p = gr;
+		logMsg("grec# %f;%f;%f", gr->t - tstart, gr->v, gr->g);
 	}
 
 	n_grec = 0;
@@ -903,6 +910,8 @@ static void record_touchdown()
 
     if (acf_ias_dr)
         landing_ias = XPLMGetDataf(acf_ias_dr);
+
+    landing_theta = XPLMGetDataf(theta_dr);
 }
 
 
@@ -971,8 +980,9 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 	/* ensure we have a real flight (and not teleportation or a bumpy takeoff) */
     if (15.0 < air_time && height < 20) {
         ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
-        ts_vy[ts_val_cur].ts = timeFromStart;
-        ts_vy[ts_val_cur].vy = XPLMGetDataf(vy_dr);
+        ts_val_t *tsv = &ts_vy[ts_val_cur];
+        tsv->ts = timeFromStart;
+        tsv->vy = XPLMGetDataf(vy_dr);
 
         compute_g();
         compute_g_lp();
