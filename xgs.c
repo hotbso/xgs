@@ -984,7 +984,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
         ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
         ts_val_t *tsv = &ts_vy[ts_val_cur];
         tsv->ts = timeFromStart;
-        tsv->vy = XPLMGetDataf(vy_dr) * cos(XPLMGetDataf(theta_dr));
+        tsv->vy = XPLMGetDataf(vy_dr) * cos(XPLMGetDataf(theta_dr) * 0.0174533);
 
         compute_g();
         compute_g_lp();
