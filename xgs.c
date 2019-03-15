@@ -264,9 +264,9 @@ static void update_landing_log()
 
     time_t now = time(NULL);
     strftime(buf, sizeof buf, "%c", localtime(&now));
-    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.3f G, ", buf, acf_icao, acf_tailnum,
+    fprintf(f, "%s %s %s %s %.3f m/s %.0f fpm %.1f° pitch %.3f G, ", buf, acf_icao, acf_tailnum,
                 airport_id, landing_vspeed,
-                landing_vspeed * MS_2_FPM, landing_G);
+                landing_vspeed * MS_2_FPM, landing_theta, landing_G);
 
 	if (0.0 < landing_dist) {
 		fprintf(f, "Threshold %s, Above: %.f ft / %.f m, Distance: %.f ft / %.f m, from CL: %.f ft / %.f m / %.1f°, ",
@@ -575,6 +575,8 @@ static int print_landing_message()
 	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
     sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s / %.1f°", landing_vspeed * MS_2_FPM, landing_vspeed, landing_theta);
+	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[1], strlen(landMsg[1])))));
+
     i = 2;
     if (landing_ias > 0) {
         if (acf_vls > 0) {
@@ -982,7 +984,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
         ts_val_cur = (ts_val_cur + 1) % N_TS_VY;
         ts_val_t *tsv = &ts_vy[ts_val_cur];
         tsv->ts = timeFromStart;
-        tsv->vy = XPLMGetDataf(vy_dr);
+        tsv->vy = XPLMGetDataf(vy_dr) * cos(XPLMGetDataf(theta_dr));
 
         compute_g();
         compute_g_lp();
