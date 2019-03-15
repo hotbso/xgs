@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.20-debug"
+#define VERSION "3.30"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
