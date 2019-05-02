@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.20-debug"
+#define VERSION "3.30-debug"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -767,7 +767,7 @@ static void fix_landing_rwy()
 					if (rhdg > 20)
 						continue;
 
-					vect2_t thr_v = rwy_end->dthr_v;
+					vect2_t thr_v = rwy_end->thr_v;
 					double dist = vect2_abs(vect2_sub(thr_v, pos_v));
 					if (dist < thresh_dist_min) {
 						thresh_dist_min = dist;
@@ -883,8 +883,8 @@ static void record_touchdown()
             const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
             const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
 
-            vect2_t center_line_v = vect2_sub(far_end->dthr_v, near_end->dthr_v);
-            vect2_t my_v = vect2_sub(pos_v, near_end->dthr_v);
+            vect2_t center_line_v = vect2_sub(far_end->thr_v, near_end->thr_v);
+            vect2_t my_v = vect2_sub(pos_v, near_end->thr_v);
             landing_dist = vect2_abs(my_v);
             double cl_len = vect2_abs(center_line_v);
 
