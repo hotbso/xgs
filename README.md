@@ -15,6 +15,7 @@ In addition to the 'old' xgs plugin this version features:
   - height above threshold
   - touchdown distance from threshold
   - deviation from center line
+  - IAS / VLS and pitch at toutchdown
 
 - g-force is computed as derivative of vertical speed so these two values really match
 
