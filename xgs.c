@@ -205,16 +205,16 @@ static void updateLogItemState()
 
 static void force_widget_visible(int widget_width)
 {
-    int screen_width, screen_height;
-    XPLMGetScreenSize(&screen_width, &screen_height);
+    int xl, yl, xr, yr;
+    XPLMGetScreenBoundsGlobal(&xl, &yr, &xr, &yl);
 
-    win_pos_x = (win_pos_x < screen_width  - widget_width) ? win_pos_x : screen_width - widget_width - 50;
-    win_pos_x = (win_pos_x <= 0) ? 20 : win_pos_x;
+    win_pos_x = (win_pos_x + widget_width < xr) ? win_pos_x : xr - widget_width - 50;
+    win_pos_x = (win_pos_x <= xl) ? 20 : win_pos_x;
 
-    win_pos_y = (win_pos_y < screen_height - WINDOW_HEIGHT) ? win_pos_y : (screen_height - WINDOW_HEIGHT - 50);
-    win_pos_y = (win_pos_y >= WINDOW_HEIGHT) ? win_pos_y : ((screen_height * 3) / 4);
-    logMsg("force_widget_visible: s: (%d,%d), ww: %d, wp: (%d, %d)",
-           screen_width, screen_height, widget_width, win_pos_x, win_pos_y);
+    win_pos_y = (win_pos_y + WINDOW_HEIGHT < yr) ? win_pos_y : (yr - WINDOW_HEIGHT - 50);
+    win_pos_y = (win_pos_y >= WINDOW_HEIGHT) ? win_pos_y : (yr / 2);
+    logMsg("force_widget_visible: s: (%d, %d) -> (%d, %d), ww: %d, wp: (%d, %d)",
+           xl, yl, xr, yr, widget_width, win_pos_x, win_pos_y);
 }
 
 
