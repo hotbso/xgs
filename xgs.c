@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.32b1"
+#define VERSION "3.32"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -205,6 +205,8 @@ static void updateLogItemState()
 
 static void force_widget_visible(int widget_width)
 {
+    /* we use modern windows under the hut so UI coordinates are in boxels */
+
     int xl, yl, xr, yr;
     XPLMGetScreenBoundsGlobal(&xl, &yr, &xr, &yl);
 
