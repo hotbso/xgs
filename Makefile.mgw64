@@ -1,23 +1,24 @@
 .SUFFIXES: .obj
 
-TARGET=win.xpl
-HEADERS=$(wildcard *.h)
-SOURCES=$(wildcard *.c)
-OBJECTS=$(SOURCES:.c=.o)
 SDK=../SDK
 ACFUT=../libacfutils-redist
 PLUGDIR=/e/X-Plane-11/Resources/plugins/xgs
 
+TARGET=win.xpl
+HEADERS=$(wildcard *.h)
+SOURCES=$(wildcard *.c)
+OBJECTS=$(SOURCES:.c=.o)
+
 CC=x86_64-w64-mingw32-gcc
 LD=x86_64-w64-mingw32-gcc
 
-CFLAGS+=-mdll -g0 -O2 -s -Wall -fdiagnostics-color -Wno-format-overflow -DWINDOWS -DWIN32 \
+CFLAGS+=-mdll -g0 -O2 -s -Wall -fdiagnostics-color -Wno-format-overflow \
+    -DWINDOWS -DWIN32 -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 \
 	-I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DIBM=1 \
     -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301 $(DEFINES)
 
 LDFLAGS=-shared -static-libgcc -static -lpthread
-LIBS=$(ACFUT)/win64/lib/acfutils.lib -L$(SDK)/Libraries/Win -lXPLM_64 -lXPWidgets_64
-
+LIBS=-L$(ACFUT)/win64/lib -L$(SDK)/Libraries/Win -lacfutils -lDbghelp -lpsapi -lXPLM_64 -lXPWidgets_64
 
 all: $(TARGET)
 
