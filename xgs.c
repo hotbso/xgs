@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.32"
+#define VERSION "3.33b1"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -67,6 +67,25 @@ static float landing_G;
 static float landing_theta;
 static float lastG;
 static float landing_ias;
+
+typedef
+struct show_time_ctx_ {
+    const char *label;
+    int idx;
+    float duration;
+} show_time_ctx_t;
+
+static show_time_ctx_t show_time_ctx[] = {
+    {" 5 seconds", 0,  5.0},
+    {"10 seconds", 0, 10.0},
+    {"30 seconds", 0, 30.0},
+    {"60 seconds", 0, 60.0},
+    {"Until closed", 0, FLT_MAX}
+};
+#define N_SHOW_TIME_CTX 5
+
+static int show_time_idx = 3; /* 60 seconds */
+
 static float remaining_show_time;
 static float remaining_update_time;
 static float air_time;
@@ -178,7 +197,7 @@ static void save_config()
     if (! f)
         return;
 
-    fprintf(f, "%i %i %i", win_pos_x, win_pos_y, log_enabled);
+    fprintf(f, "%i %i %i %i", win_pos_x, win_pos_y, log_enabled, show_time_idx);
     fclose(f);
 }
 
@@ -191,15 +210,12 @@ static void load_config()
     if (! f)
         return;
 
-    fscanf(f, "%i %i %i", &win_pos_x, &win_pos_y, &log_enabled);
+    fscanf(f, "%i %i %i %i", &win_pos_x, &win_pos_y, &log_enabled, &show_time_idx);
     fclose(f);
-}
 
-
-static void updateLogItemState()
-{
-    XPLMCheckMenuItem(xgs_menu, enable_log_item,
-        log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    /* this is an index into an array, so sanitize */
+    if (show_time_idx  < 0 || show_time_idx >= N_SHOW_TIME_CTX)
+        show_time_idx = 3;
 }
 
 
@@ -220,10 +236,27 @@ static void force_widget_visible(int widget_width)
 }
 
 
+static void update_menu_items()
+{
+    XPLMCheckMenuItem(xgs_menu, enable_log_item,
+        log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+
+    for (int i = 0; i < N_SHOW_TIME_CTX; i++) {
+        XPLMCheckMenuItem(xgs_menu, show_time_ctx[i].idx,
+                          i == show_time_idx ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    }
+}
+
+
 static void xgs_menu_cb(void *menuRef, void *param)
 {
-    log_enabled = ! log_enabled;
-    updateLogItemState();
+    if (-1 == (long long)param) {
+        log_enabled = ! log_enabled;
+    } else {
+        show_time_idx = (long long)param;
+    }
+
+    update_menu_items();
 }
 
 
@@ -490,8 +523,16 @@ PLUGIN_API int XPluginEnable(void)
             int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
             xgs_menu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
                         xgs_menu_cb, NULL);
-            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", NULL, 1);
-            updateLogItemState();
+            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", (void *)-1, 0);
+
+            XPLMAppendMenuSeparator(xgs_menu);
+
+            for (int i = 0; i < N_SHOW_TIME_CTX; i++) {
+                show_time_ctx_t *ctx = &show_time_ctx[i];
+                ctx->idx = XPLMAppendMenuItem(xgs_menu, ctx->label, (void *)(long long)i, 0);
+            }
+
+            update_menu_items();
             logMsg("init done");
         }
     }
@@ -665,7 +706,7 @@ static int widget_cb(XPWidgetMessage msg, XPWidgetID widget_id, intptr_t param1,
 
 static void create_event_window()
 {
-	remaining_show_time = 60.0f;
+	remaining_show_time = show_time_ctx[show_time_idx].duration;
 	window_width = STD_WINDOW_WIDTH;
 
     force_widget_visible(window_width);
