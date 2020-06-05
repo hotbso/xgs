@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.33b1"
+#define VERSION "3.33"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -716,7 +716,7 @@ static void create_event_window()
 
 	if (NULL == main_widget) {
 		main_widget = XPCreateWidget(left, top, left + STD_WINDOW_WIDTH, top - WINDOW_HEIGHT,
-			0, "Landing Speed", 1, NULL, xpWidgetClass_MainWindow);
+			0, "Landing Speed " VERSION, 1, NULL, xpWidgetClass_MainWindow);
 		XPSetWidgetProperty(main_widget, xpProperty_MainWindowType, xpMainWindowStyle_Translucent);
 		XPSetWidgetProperty(main_widget, xpProperty_MainWindowHasCloseBoxes, 1);
 		XPAddWidgetCallback(main_widget, widget_cb);
