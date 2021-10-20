@@ -68,6 +68,8 @@ static float landing_G;
 static float landing_theta;
 static float lastG;
 static float landing_ias;
+static vect2_t landing_thr_v;   /* landing threshold */
+static float nose_wheel_td_dist = 0;    /* dist until nose wheel td */
 
 typedef
 struct show_time_ctx_ {
@@ -175,6 +177,8 @@ static void get_acf_dr()
         logMsg("ToLiss A3xx detected");
         acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
         acf_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
+        if (acf_strut_compress_dr != NULL)
+            logMsg("acf_strut_compress_dr initialized");
     } else {
         acf_ias_dr = acf_strut_compress_dr = NULL;
     }
@@ -338,6 +342,7 @@ static void close_event_window()
     landing_ias = 0.0;
     acf_vls = 0.0;
 	landing_rwy = NULL;
+    nose_wheel_td_dist = -1.0;      /* -1.0 meaning landing_thr_v not initialized */
     touchdown = 0;
     landing_dist = -1.0;
 }
@@ -645,7 +650,14 @@ static int print_landing_message()
 	if (landing_dist > 0.0) {
 		sprintf(landMsg[i++], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
 		sprintf(landMsg[i++], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
-		sprintf(landMsg[i++], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+
+        if (nose_wheel_td_dist > 0.0) {
+            sprintf(landMsg[i++], "Distance: %.f/%.f ft / %.f/%.f m",
+                    landing_dist * M_2_FT, nose_wheel_td_dist * M_2_FT, landing_dist, nose_wheel_td_dist);
+            logMsg(landMsg[i-1]);
+        } else
+            sprintf(landMsg[i++], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+
 		sprintf(landMsg[i], "from CL:  %.f ft / %.f m / %.1f°",
 							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
 		w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[i], strlen(landMsg[i])))));
@@ -671,6 +683,19 @@ static void update_landing_result()
     if (landing_G < lastG) {
         landing_G = lastG;
         changed = 1;
+    }
+
+    /* ToLiss specific: record distance to nose wheel td */
+    if (acf_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0) {
+        float sc;
+        XPLMGetDatavf(acf_strut_compress_dr, &sc, 0, 1); /* nose wheel */
+        logMsg("nw strut compression %0.2f", sc);
+        if (sc > 0.02) {
+            vect2_t pos_v = geo2fpp(GEO3_TO_GEO2(cur_pos), &landing_rwy->arpt->fpp);
+            nose_wheel_td_dist = vect2_abs(vect2_sub(pos_v, landing_thr_v));
+            logMsg("dist to nose wheel TD: %0.1f m", nose_wheel_td_dist);
+            changed = 1;
+        }
     }
 
     if (changed || landMsg[0][0]) {
@@ -936,6 +961,9 @@ static void record_touchdown()
             const runway_end_t *near_end = &landing_rwy->ends[landing_rwy_end];
             const runway_end_t *far_end = &landing_rwy->ends[(0 == landing_rwy_end ? 1 : 0)];
 
+            landing_thr_v = near_end->thr_v;        /* save for later */
+            nose_wheel_td_dist = 0.0;               /* 0.0 : landing_thr_v is initialized */
+
             vect2_t center_line_v = vect2_sub(far_end->thr_v, near_end->thr_v);
             vect2_t my_v = vect2_sub(pos_v, near_end->thr_v);
             landing_dist = vect2_abs(my_v);
@@ -1078,7 +1106,7 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
         if (!touchdown && ACF_STATE_AIR == acf_last_state && ACF_STATE_GROUND == acf_state) {
             touchdown = 1;
             record_touchdown();
-            remaining_update_time = 3.0f;
+            remaining_update_time = 10.0f;
             loops_in_touchdown = 0;
             loop_delay = -1.0;  /* highest resolution */
             logMsg("touchdown");
