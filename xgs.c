@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.33"
+#define VERSION "3.40-dev"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -43,12 +43,13 @@ static int init_done;
 static int init_failure;
 
 static XPWidgetID main_widget;
-static XPLMDataRef gear_faxil_dr, flight_time_dr, acf_num_dr, icao_dr,
+static XPLMDataRef gear_fnrml_dr, flight_time_dr, acf_num_dr, icao_dr,
         lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr,
         theta_dr;
 
 /* acf specific datarefs and data */
-static XPLMDataRef acf_vls_dr, acf_ias_dr;
+static XPLMDataRef acf_vls_dr, acf_ias_dr, acf_strut_compress_dr;
+
 const char *acf_ias_unit;
 static float acf_ias_conv;      /* conversion from knt to unit */
 static char acf_tailnum[50];
@@ -168,11 +169,14 @@ static void get_acf_dr()
         return;
     }
 
-    /* try ToLiss A319 */
+    /* try ToLiss A3xx */
     acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
     if (acf_vls_dr) {
         logMsg("ToLiss A3xx detected");
         acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
+        acf_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
+    } else {
+        acf_ias_dr = acf_strut_compress_dr = NULL;
     }
 }
 
@@ -502,7 +506,7 @@ PLUGIN_API int XPluginEnable(void)
             logMsg("init failure: recreate_cache failed");
             init_failure = 1;
         } else {
-            gear_faxil_dr = XPLMFindDataRef("sim/flightmodel/forces/faxil_gear");
+            gear_fnrml_dr = XPLMFindDataRef("sim/flightmodel/forces/fnrml_gear");
             flight_time_dr = XPLMFindDataRef("sim/time/total_flight_time_sec");
             icao_dr = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
             acf_num_dr = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
@@ -600,7 +604,13 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 
 static int get_current_state()
 {
-    return 0.0 != XPLMGetDataf(gear_faxil_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
+    /* ToLiss specific: check strut compression > 0.02 m */
+    if (acf_strut_compress_dr) {
+        float sc[2];
+        XPLMGetDatavf(acf_strut_compress_dr, sc, 1, 2); /* main gear */
+        return (sc[0] > 0.02 || sc[1] > 0.02) ? ACF_STATE_GROUND : ACF_STATE_AIR;
+    } else
+        return 0.0 != XPLMGetDataf(gear_fnrml_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
 }
 
 
