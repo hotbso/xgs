@@ -50,6 +50,7 @@ static XPLMDataRef gear_fnrml_dr, flight_time_dr, acf_num_dr, icao_dr,
 /* acf specific datarefs and data */
 static XPLMDataRef acf_ias_dr, toliss_vls_dr, toliss_strut_compress_dr;
 static float toliss_vls;
+static int toliss_a340;         /* 1 = is A34x */
 
 const char *acf_ias_unit;
 static float acf_ias_conv;      /* conversion from knt to unit */
@@ -177,6 +178,7 @@ static void get_acf_dr()
         logMsg("ToLiss A3xx detected");
         acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
         toliss_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
+        toliss_a340 = (0 == strncmp(acf_icao, "A34", 3));
         if (toliss_strut_compress_dr == NULL)
             logMsg(".. but toliss_strut_compress_dr is not defined");
     } else {
@@ -693,7 +695,8 @@ static void update_landing_result()
     /* ToLiss specific: record distance to nose wheel td */
     if (toliss_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0) {
         float sc;
-        XPLMGetDatavf(toliss_strut_compress_dr, &sc, 0, 1); /* nose wheel */
+        int nw = toliss_a340 ? 3 : 0;   /* narrow body: 0, A340: 3 */
+        XPLMGetDatavf(toliss_strut_compress_dr, &sc, nw, 1); /* nose wheel */
         if (sc > 0.01) {
             vect2_t pos_v = geo2fpp(GEO3_TO_GEO2(cur_pos), &landing_rwy->arpt->fpp);
             nose_wheel_td_dist = vect2_abs(vect2_sub(pos_v, landing_thr_v));
