@@ -33,11 +33,11 @@ static void force_widget_visible(int widget_width);
 #define ACF_STATE_GROUND 1
 #define ACF_STATE_AIR 2
 
-#define WINDOW_HEIGHT 155
+#define N_WIN_LINE 9
+#define WINDOW_HEIGHT (N_WIN_LINE * 15 + 35)
 #define STD_WINDOW_WIDTH 185
 #define SIDE_MARGIN 10
 
-#define N_WIN_LINE 8
 static int xgs_enabled;
 static int init_done;
 static int init_failure;
@@ -48,14 +48,14 @@ static XPLMDataRef gear_fnrml_dr, flight_time_dr, acf_num_dr, icao_dr,
         theta_dr;
 
 /* acf specific datarefs and data */
-static XPLMDataRef acf_vls_dr, acf_ias_dr, acf_strut_compress_dr;
+static XPLMDataRef acf_ias_dr, toliss_vls_dr, toliss_strut_compress_dr;
+static float toliss_vls;
 
 const char *acf_ias_unit;
 static float acf_ias_conv;      /* conversion from knt to unit */
 static char acf_tailnum[50];
 static char acf_icao[40];
-static float acf_vls;
-static int get_acf_dr_done;  /* try to get acf specific vls_dr in flight_loop */
+static int get_acf_dr_done;     /* try to get acf specific vls_dr in flight_loop */
 
 static char landMsg[N_WIN_LINE][100];
 static geo_pos3_t cur_pos, last_pos;
@@ -172,15 +172,15 @@ static void get_acf_dr()
     }
 
     /* try ToLiss A3xx */
-    acf_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
-    if (acf_vls_dr) {
+    toliss_vls_dr = XPLMFindDataRef("toliss_airbus/pfdoutputs/general/VLS_value");
+    if (toliss_vls_dr) {
         logMsg("ToLiss A3xx detected");
         acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
-        acf_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
-        if (acf_strut_compress_dr != NULL)
-            logMsg("acf_strut_compress_dr initialized");
+        toliss_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
+        if (toliss_strut_compress_dr == NULL)
+            logMsg(".. but toliss_strut_compress_dr is not defined");
     } else {
-        acf_ias_dr = acf_strut_compress_dr = NULL;
+        acf_ias_dr = toliss_strut_compress_dr = NULL;
     }
 }
 
@@ -340,7 +340,7 @@ static void close_event_window()
     remaining_show_time = 0.0;
 	air_time = 0.0;
     landing_ias = 0.0;
-    acf_vls = 0.0;
+    toliss_vls = 0.0;
 	landing_rwy = NULL;
     nose_wheel_td_dist = -1.0;      /* -1.0 meaning landing_thr_v not initialized */
     touchdown = 0;
@@ -609,11 +609,11 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
 
 static int get_current_state()
 {
-    /* ToLiss specific: check strut compression > 0.02 m */
-    if (acf_strut_compress_dr) {
+    /* ToLiss specific: check strut compression > 0.01 m */
+    if (toliss_strut_compress_dr) {
         float sc[2];
-        XPLMGetDatavf(acf_strut_compress_dr, sc, 1, 2); /* main gear */
-        return (sc[0] > 0.02 || sc[1] > 0.02) ? ACF_STATE_GROUND : ACF_STATE_AIR;
+        XPLMGetDatavf(toliss_strut_compress_dr, sc, 1, 2); /* main gear */
+        return (sc[0] > 0.01 || sc[1] > 0.01) ? ACF_STATE_GROUND : ACF_STATE_AIR;
     } else
         return 0.0 != XPLMGetDataf(gear_fnrml_dr) ? ACF_STATE_GROUND : ACF_STATE_AIR;
 }
@@ -637,9 +637,9 @@ static int print_landing_message()
 
     i = 2;
     if (landing_ias > 0) {
-        if (acf_vls > 0) {
+        if (toliss_vls > 0) {
             sprintf(landMsg[i++], "IAS / VLS: %.0f / %.0f %s",
-                    landing_ias * acf_ias_conv, acf_vls, acf_ias_unit);
+                    landing_ias * acf_ias_conv, toliss_vls, acf_ias_unit);
         } else {
             sprintf(landMsg[i++], "IAS: %.0f %s",
                     landing_ias * acf_ias_conv, acf_ias_unit);
@@ -649,23 +649,28 @@ static int print_landing_message()
     sprintf(landMsg[i++], "G:  %.2f", landing_G);
 	if (landing_dist > 0.0) {
 		sprintf(landMsg[i++], "Threshold %s/%s", landing_rwy->arpt->icao, landing_rwy->ends[landing_rwy_end].id);
-		sprintf(landMsg[i++], "Above:    %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
+		sprintf(landMsg[i++], "Above:         %.f ft / %.f m", landing_cross_height * M_2_FT, landing_cross_height);
 
-        if (nose_wheel_td_dist > 0.0) {
-            sprintf(landMsg[i++], "Distance: %.f/%.f ft / %.f/%.f m",
-                    landing_dist * M_2_FT, nose_wheel_td_dist * M_2_FT, landing_dist, nose_wheel_td_dist);
-            logMsg(landMsg[i-1]);
-        } else
-            sprintf(landMsg[i++], "Distance: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+        if (toliss_strut_compress_dr)
+           sprintf(landMsg[i++], "Main wheel TD: %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
+        else
+           sprintf(landMsg[i++], "Distance:      %.f ft / %.f m", landing_dist * M_2_FT, landing_dist);
 
-		sprintf(landMsg[i], "from CL:  %.f ft / %.f m / %.1f°",
+        if (nose_wheel_td_dist > 0.0)
+           sprintf(landMsg[i++], "Nose wheel TD: %.f ft / %.f m", nose_wheel_td_dist * M_2_FT, nose_wheel_td_dist);
+
+		sprintf(landMsg[i], "from CL:         %.f ft / %.f m / %.1f°",
 							landing_cl_delta * M_2_FT, landing_cl_delta, landing_cl_angle);
 		w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[i], strlen(landMsg[i])))));
 
 	} else {
-		strcpy(landMsg[i++], "Not on a runway!");
-		landMsg[i][0] = '\0';
+		strcpy(landMsg[i], "Not on a runway!");
 	}
+
+    ASSERT(i < N_WIN_LINE);     /* better safe than sorry */
+
+	if (i < N_WIN_LINE - 1)
+        landMsg[i+1][0] = '\0';
 
 	return w_width;
 }
@@ -686,11 +691,10 @@ static void update_landing_result()
     }
 
     /* ToLiss specific: record distance to nose wheel td */
-    if (acf_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0) {
+    if (toliss_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0) {
         float sc;
-        XPLMGetDatavf(acf_strut_compress_dr, &sc, 0, 1); /* nose wheel */
-        logMsg("nw strut compression %0.2f", sc);
-        if (sc > 0.02) {
+        XPLMGetDatavf(toliss_strut_compress_dr, &sc, 0, 1); /* nose wheel */
+        if (sc > 0.01) {
             vect2_t pos_v = geo2fpp(GEO3_TO_GEO2(cur_pos), &landing_rwy->arpt->fpp);
             nose_wheel_td_dist = vect2_abs(vect2_sub(pos_v, landing_thr_v));
             logMsg("dist to nose wheel TD: %0.1f m", nose_wheel_td_dist);
@@ -867,9 +871,9 @@ static void fix_landing_rwy()
 			   min_arpt->icao, landing_rwy->ends[landing_rwy_end].id, thresh_dist_min);
 
         /* get VLS now because it may be flushed on touch down */
-        if (acf_vls_dr) {
-            acf_vls = XPLMGetDataf(acf_vls_dr);
-            logMsg("ToLiss A3xx vls %0.1f", acf_vls);
+        if (toliss_vls_dr) {
+            toliss_vls = XPLMGetDataf(toliss_vls_dr);
+            logMsg("ToLiss A3xx vls %0.1f", toliss_vls);
         }
 
 	}
