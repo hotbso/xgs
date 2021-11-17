@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.40"
+#define VERSION "3.41"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -693,7 +693,8 @@ static void update_landing_result()
     }
 
     /* ToLiss specific: record distance to nose wheel td */
-    if (toliss_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0) {
+    if (toliss_strut_compress_dr != NULL && nose_wheel_td_dist == 0.0 && landing_dist > 0.0
+        && landing_rwy != NULL) {      /* this on may be redundant but better be safe */
         float sc;
         int nw = toliss_a340 ? 3 : 0;   /* narrow body: 0, A340: 3 */
         XPLMGetDatavf(toliss_strut_compress_dr, &sc, nw, 1); /* nose wheel */
