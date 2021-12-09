@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.42"
+#define VERSION "3.44"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -178,14 +178,17 @@ static void get_acf_dr()
         logMsg("ToLiss A3xx detected");
         acf_ias_dr = XPLMFindDataRef("AirbusFBW/IASCapt");
 
-        /* the A319 does not use the GearStrutCompressDist_m dr */
+        toliss_a340 = (0 == strncmp(acf_icao, "A34", 3));
+
+        /* the A340 uses the GearStrutCompressDist_m dr */
         toliss_strut_compress_dr = NULL;
-        if (0 != strncmp(acf_icao, "A319", 4)) {
+        if (toliss_a340) {
             toliss_strut_compress_dr = XPLMFindDataRef("AirbusFBW/GearStrutCompressDist_m");
-            toliss_a340 = (0 == strncmp(acf_icao, "A34", 3));
             if (toliss_strut_compress_dr == NULL)
                 logMsg(".. but toliss_strut_compress_dr is not defined");
-        }
+        } else  /* the narrow bodies use this standard dr */
+             toliss_strut_compress_dr = XPLMFindDataRef("sim/flightmodel2/gear/tire_vertical_deflection_mtr");
+
     }
 }
 
