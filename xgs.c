@@ -20,7 +20,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.44"
+#define VERSION "3.45-dev"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -59,7 +59,7 @@ static char acf_icao[40];
 static int get_acf_dr_done;     /* try to get acf specific vls_dr in flight_loop */
 
 static char landMsg[N_WIN_LINE][100];
-static geo_pos3_t cur_pos, last_pos;
+static geo_pos3_t cur_pos;
 static vect3_t last_pos_v;
 
 static int acf_last_state;
@@ -1027,8 +1027,8 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
 
     vect3_t cur_pos_v = sph2ecef(cur_pos);
 
-    /* if we go supersonic it's a teleportation */
-    int teleportation = (vect3_dist(cur_pos_v, last_pos_v) / inElapsedSinceLastCall > 340.0);
+    /* if we go 3 * supersonic it's a teleportation */
+    int teleportation = (vect3_dist(cur_pos_v, last_pos_v) / inElapsedSinceLastCall > 3 * 340.0);
     if (teleportation)
         logMsg("Teleportation detected");
 
@@ -1128,7 +1128,6 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     }
 
     acf_last_state = acf_state;
-    last_pos = cur_pos;
     last_pos_v = cur_pos_v;
     return loop_delay;
 }
