@@ -45,7 +45,7 @@ static int init_failure;
 static XPWidgetID main_widget;
 static XPLMDataRef gear_fnrml_dr, flight_time_dr, acf_num_dr, icao_dr,
         lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr,
-        theta_dr;
+        theta_dr, in_replay_dr;
 
 /* acf specific datarefs and data */
 static XPLMDataRef acf_ias_dr, toliss_vls_dr, toliss_strut_compress_dr;
@@ -292,6 +292,9 @@ static void trim(char *str)
 
 static void update_landing_log()
 {
+    if (XPLMGetDatai(in_replay_dr))     /* do not log in replay mode */
+        return;
+
     FILE *f;
     char buf[512];
     char airport_id[50];
@@ -533,6 +536,7 @@ PLUGIN_API int XPluginEnable(void)
 
             elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
             vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
+            in_replay_dr = XPLMFindDataRef("sim/time/is_in_replay");
 
             XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
 
