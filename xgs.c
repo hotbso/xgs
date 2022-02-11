@@ -567,7 +567,6 @@ PLUGIN_API int XPluginEnable(void)
 
 PLUGIN_API void	XPluginStop(void)
 {
-    XPluginDisable();       /* just in case */
 }
 
 
