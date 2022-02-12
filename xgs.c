@@ -87,6 +87,9 @@ static show_time_ctx_t show_time_ctx[] = {
     {"Until closed", 0, FLT_MAX}
 };
 #define N_SHOW_TIME_CTX 5
+/* these must be < 0 */
+#define MENU_LOG_ENABLE -1
+#define MENU_SHOW_IN_REPLAY -2
 
 static int show_time_idx = 3; /* 60 seconds */
 
@@ -98,9 +101,9 @@ static int win_pos_x;
 static int win_pos_y;
 static int widget_in_vr;
 static XPLMMenuID xgs_menu;
-static int enable_log_item;
+static int enable_log_item, show_in_replay_item;
 static int log_enabled = 0;
-
+static int show_in_replay = 0;
 
 typedef struct rating_ { float limit; char txt[100]; } rating_t;
 static rating_t std_rating[] = {
@@ -213,7 +216,7 @@ static void save_config()
     if (! f)
         return;
 
-    fprintf(f, "%i %i %i %i", win_pos_x, win_pos_y, log_enabled, show_time_idx);
+    fprintf(f, "%i %i %i %i %i", win_pos_x, win_pos_y, log_enabled, show_time_idx, show_in_replay);
     fclose(f);
 }
 
@@ -226,7 +229,7 @@ static void load_config()
     if (! f)
         return;
 
-    fscanf(f, "%i %i %i %i", &win_pos_x, &win_pos_y, &log_enabled, &show_time_idx);
+    fscanf(f, "%i %i %i %i %i", &win_pos_x, &win_pos_y, &log_enabled, &show_time_idx, &show_in_replay);
     fclose(f);
 
     /* this is an index into an array, so sanitize */
@@ -257,6 +260,9 @@ static void update_menu_items()
     XPLMCheckMenuItem(xgs_menu, enable_log_item,
         log_enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 
+    XPLMCheckMenuItem(xgs_menu, show_in_replay_item,
+        show_in_replay ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+
     for (int i = 0; i < N_SHOW_TIME_CTX; i++) {
         XPLMCheckMenuItem(xgs_menu, show_time_ctx[i].idx,
                           i == show_time_idx ? xplm_Menu_Checked : xplm_Menu_Unchecked);
@@ -266,9 +272,11 @@ static void update_menu_items()
 
 static void xgs_menu_cb(void *menuRef, void *param)
 {
-    if (-1 == (long long)param) {
+    if (MENU_LOG_ENABLE == (long long)param) {
         log_enabled = ! log_enabled;
-    } else {
+    } else if (MENU_SHOW_IN_REPLAY == (long long)param) {
+        show_in_replay = ! show_in_replay;
+     } else {
         show_time_idx = (long long)param;
     }
 
@@ -544,7 +552,8 @@ PLUGIN_API int XPluginEnable(void)
             int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
             xgs_menu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
                         xgs_menu_cb, NULL);
-            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", (void *)-1, 0);
+            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", (void *)MENU_LOG_ENABLE, 0);
+            show_in_replay_item = XPLMAppendMenuItem(xgs_menu, "Show in Replay", (void *)MENU_SHOW_IN_REPLAY, 0);
 
             XPLMAppendMenuSeparator(xgs_menu);
 
@@ -1041,6 +1050,10 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
         if (teleportation || (0.0 >= remaining_show_time))
             close_event_window();
     }
+
+    /* nothing to do in replay mode */
+    if (! show_in_replay && XPLMGetDatai(in_replay_dr))
+        return 1.0;
 
     int acf_state = get_current_state();
 
