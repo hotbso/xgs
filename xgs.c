@@ -480,153 +480,6 @@ static int map_acf_to_cfg(const char *acf, const char *map_path, char *cfg_name)
 }
 
 
-/* plugin entry points */
-PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
-{
-	log_init(XPLMDebugString, "xgs");
-    logMsg("startup " VERSION);
-
- 	/* Always use Unix-native paths on the Mac! */
-	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
-    XPLMEnableFeature("XPLM_USE_NATIVE_WIDGET_WINDOWS", 1);
-
-    psep = XPLMGetDirectorySeparator();
-	XPLMGetSystemPath(xpdir);
-
-    load_config();
-    strcpy(outName, "Landing Speed " VERSION);
-    strcpy(outSig, "babichev.landspeed - hotbso");
-    strcpy(outDesc, "A plugin that shows vertical landing speed.");
-    return 1;
-}
-
-
-PLUGIN_API void XPluginDisable(void)
-{
-    if (xgs_enabled) {
-        close_event_window();
-        save_config();
-    }
-
-    logMsg("disabled");
-    xgs_enabled = 0;
-}
-
-
-PLUGIN_API int XPluginEnable(void)
-{
-    if (!init_done) {
-        logMsg("init start");
-
-        init_done = 1;      /* one time only */
-
-        char cache_path[512];
-        sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
-        fix_pathsep(cache_path);                        /* libacfutils requires a canonical path sep */
-        airportdb_create(&airportdb, xpdir, cache_path);
-        airportdb.ifr_only = B_FALSE;
-
-        if (!recreate_cache(&airportdb)) {
-            logMsg("init failure: recreate_cache failed");
-            init_failure = 1;
-        } else {
-            gear_fnrml_dr = XPLMFindDataRef("sim/flightmodel/forces/fnrml_gear");
-            flight_time_dr = XPLMFindDataRef("sim/time/total_flight_time_sec");
-            icao_dr = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-            acf_num_dr = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
-
-            lat_dr = XPLMFindDataRef("sim/flightmodel/position/latitude");
-            lon_dr = XPLMFindDataRef("sim/flightmodel/position/longitude");
-            y_agl_dr = XPLMFindDataRef("sim/flightmodel/position/y_agl");
-            hdg_dr = XPLMFindDataRef("sim/flightmodel/position/true_psi");
-            vy_dr = XPLMFindDataRef("sim/flightmodel/position/local_vy");
-            theta_dr = XPLMFindDataRef("sim/flightmodel/position/theta");
-
-            elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
-            vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
-            in_replay_dr = XPLMFindDataRef("sim/time/is_in_replay");
-
-            XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
-
-            XPLMMenuID pluginsMenu = XPLMFindPluginsMenu();
-            int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
-            xgs_menu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
-                        xgs_menu_cb, NULL);
-            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", (void *)MENU_LOG_ENABLE, 0);
-            show_in_replay_item = XPLMAppendMenuItem(xgs_menu, "Show in Replay", (void *)MENU_SHOW_IN_REPLAY, 0);
-
-            XPLMAppendMenuSeparator(xgs_menu);
-
-            for (int i = 0; i < N_SHOW_TIME_CTX; i++) {
-                show_time_ctx_t *ctx = &show_time_ctx[i];
-                ctx->idx = XPLMAppendMenuItem(xgs_menu, ctx->label, (void *)(long long)i, 0);
-            }
-
-            update_menu_items();
-            logMsg("init done");
-        }
-    }
-
-    if (init_failure) {
-        logMsg("init failed, can't enable");
-        return 0;
-    }
-
-    logMsg("xgs enabled");
-    xgs_enabled = 1;
-    return 1;
-}
-
-
-PLUGIN_API void	XPluginStop(void)
-{
-}
-
-
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
-{
-	if ((XPLM_MSG_PLANE_LOADED == msg) && (0 == param)) {
-        int n = XPLMGetDatab(acf_num_dr, acf_tailnum, 0, 49);
-        acf_tailnum[n] = '\0';
-
-        n = XPLMGetDatab(icao_dr, acf_icao, 0, 39);
-        acf_icao[n] = '\0';
-
-        /* can't get the dataref here because the acf's plugins are not initialized */
-        get_acf_dr_done = 0;
-
-        char path[512];
-        char acf_file[256];
-
-        /* default to compiled in values */
-        rating = std_rating;
-
-        /* try acf specific config */
-        XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, path);
-        char *s = strrchr(path, psep[0]);
-        if (NULL != s) {
-            strcpy(s+1, "xgs_rating.cfg");
-            if (load_rating_cfg(path))
-                return;
-        }
-
-        char plugin_path[512];
-        snprintf(plugin_path, sizeof plugin_path, "%sResources%splugins%sxgs%s",
-                 xpdir, psep, psep, psep);
-
-         /* try mapping */
-        strcpy(path, plugin_path); strcat(path, "acf_mapping.cfg");
-        if (map_acf_to_cfg(acf_icao, path, &path[strlen(plugin_path)]) && load_rating_cfg(path))
-            return;
-
-        /* try system wide config */
-        strcpy(path, plugin_path); strcat(path, "std_xgs_rating.cfg");
-        if (load_rating_cfg(path))
-            return;
-    }
-}
-
-
 static int get_current_state()
 {
     /* ToLiss specific: check strut compression > 0.01 m */
@@ -1146,4 +999,151 @@ static float flight_loop_cb(float inElapsedSinceLastCall,
     acf_last_state = acf_state;
     last_pos_v = cur_pos_v;
     return loop_delay;
+}
+
+
+/* =========================== plugin entry points ===============================================*/
+PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
+{
+	log_init(XPLMDebugString, "xgs");
+    logMsg("startup " VERSION);
+
+ 	/* Always use Unix-native paths on the Mac! */
+	XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+    XPLMEnableFeature("XPLM_USE_NATIVE_WIDGET_WINDOWS", 1);
+
+    psep = XPLMGetDirectorySeparator();
+	XPLMGetSystemPath(xpdir);
+
+    load_config();
+    strcpy(outName, "Landing Speed " VERSION);
+    strcpy(outSig, "babichev.landspeed - hotbso");
+    strcpy(outDesc, "A plugin that shows vertical landing speed.");
+    return 1;
+}
+
+
+PLUGIN_API void	XPluginStop(void)
+{
+}
+
+
+PLUGIN_API int XPluginEnable(void)
+{
+    if (!init_done) {
+        logMsg("init start");
+
+        init_done = 1;      /* one time only */
+
+        char cache_path[512];
+        sprintf(cache_path, "%sOutput%scaches%sXGS.cache", xpdir, psep, psep);
+        fix_pathsep(cache_path);                        /* libacfutils requires a canonical path sep */
+        airportdb_create(&airportdb, xpdir, cache_path);
+        airportdb.ifr_only = B_FALSE;
+
+        if (!recreate_cache(&airportdb)) {
+            logMsg("init failure: recreate_cache failed");
+            init_failure = 1;
+        } else {
+            gear_fnrml_dr = XPLMFindDataRef("sim/flightmodel/forces/fnrml_gear");
+            flight_time_dr = XPLMFindDataRef("sim/time/total_flight_time_sec");
+            icao_dr = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+            acf_num_dr = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+
+            lat_dr = XPLMFindDataRef("sim/flightmodel/position/latitude");
+            lon_dr = XPLMFindDataRef("sim/flightmodel/position/longitude");
+            y_agl_dr = XPLMFindDataRef("sim/flightmodel/position/y_agl");
+            hdg_dr = XPLMFindDataRef("sim/flightmodel/position/true_psi");
+            vy_dr = XPLMFindDataRef("sim/flightmodel/position/local_vy");
+            theta_dr = XPLMFindDataRef("sim/flightmodel/position/theta");
+
+            elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
+            vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
+            in_replay_dr = XPLMFindDataRef("sim/time/is_in_replay");
+
+            XPLMRegisterFlightLoopCallback(flight_loop_cb, 0.05f, NULL);
+
+            XPLMMenuID pluginsMenu = XPLMFindPluginsMenu();
+            int subMenuItem = XPLMAppendMenuItem(pluginsMenu, "Landing Speed", NULL, 1);
+            xgs_menu = XPLMCreateMenu("Landing Speed", pluginsMenu, subMenuItem,
+                        xgs_menu_cb, NULL);
+            enable_log_item = XPLMAppendMenuItem(xgs_menu, "Enable Log", (void *)MENU_LOG_ENABLE, 0);
+            show_in_replay_item = XPLMAppendMenuItem(xgs_menu, "Show in Replay", (void *)MENU_SHOW_IN_REPLAY, 0);
+
+            XPLMAppendMenuSeparator(xgs_menu);
+
+            for (int i = 0; i < N_SHOW_TIME_CTX; i++) {
+                show_time_ctx_t *ctx = &show_time_ctx[i];
+                ctx->idx = XPLMAppendMenuItem(xgs_menu, ctx->label, (void *)(long long)i, 0);
+            }
+
+            update_menu_items();
+            logMsg("init done");
+        }
+    }
+
+    if (init_failure) {
+        logMsg("init failed, can't enable");
+        return 0;
+    }
+
+    logMsg("xgs enabled");
+    xgs_enabled = 1;
+    return 1;
+}
+
+
+PLUGIN_API void XPluginDisable(void)
+{
+    if (xgs_enabled) {
+        close_event_window();
+        save_config();
+    }
+
+    logMsg("disabled");
+    xgs_enabled = 0;
+}
+
+
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID from, long msg, void *param)
+{
+	if ((XPLM_MSG_PLANE_LOADED == msg) && (0 == param)) {
+        int n = XPLMGetDatab(acf_num_dr, acf_tailnum, 0, 49);
+        acf_tailnum[n] = '\0';
+
+        n = XPLMGetDatab(icao_dr, acf_icao, 0, 39);
+        acf_icao[n] = '\0';
+
+        /* can't get the dataref here because the acf's plugins are not initialized */
+        get_acf_dr_done = 0;
+
+        char path[512];
+        char acf_file[256];
+
+        /* default to compiled in values */
+        rating = std_rating;
+
+        /* try acf specific config */
+        XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, acf_file, path);
+        char *s = strrchr(path, psep[0]);
+        if (NULL != s) {
+            strcpy(s+1, "xgs_rating.cfg");
+            if (load_rating_cfg(path))
+                return;
+        }
+
+        char plugin_path[512];
+        snprintf(plugin_path, sizeof plugin_path, "%sResources%splugins%sxgs%s",
+                 xpdir, psep, psep, psep);
+
+         /* try mapping */
+        strcpy(path, plugin_path); strcat(path, "acf_mapping.cfg");
+        if (map_acf_to_cfg(acf_icao, path, &path[strlen(plugin_path)]) && load_rating_cfg(path))
+            return;
+
+        /* try system wide config */
+        strcpy(path, plugin_path); strcat(path, "std_xgs_rating.cfg");
+        if (load_rating_cfg(path))
+            return;
+    }
 }
