@@ -2,14 +2,16 @@
 
 SDK=../SDK
 PLUGDIR=/e/X-Plane-12/Resources/plugins/xgs
+OBJDIR=./OBJ
+
 LIBACFUTILS_VERSION="hotbso subset"
 TARGET=win.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
-OBJECTS=$(SOURCES:.c=.o)
+OBJECTS=$(addprefix $(OBJDIR)/, $(SOURCES:.c=.o))
 
-LACF_SOURCES=$(wildcard libacfutils/src/*.c)
-LACF_OBJECTS=$(notdir $(LACF_SOURCES:.c=.o))
+LACFU_SOURCES=$(wildcard libacfutils/src/*.c)
+LACFU_OBJECTS=$(addprefix $(OBJDIR)/, $(notdir $(LACFU_SOURCES:.c=.o)))
 
 CC=x86_64-w64-mingw32-gcc
 LD=x86_64-w64-mingw32-gcc
@@ -24,18 +26,19 @@ LDFLAGS=-shared -static-libgcc -static -lpthread
 LIBS=-L$(SDK)/Libraries/Win -lDbghelp -lpsapi -lXPLM_64 -lXPWidgets_64 -lz -liconv
 
 all: $(TARGET)
+    $(shell [ -d $(OBJDIR) ] || mkdir $(OBJDIR))
 
-%.o: %.c
-	$(CC) $(CFLAGS) -o $(notdir $@) -c $<
+$(OBJDIR)/%.o: %.c
+	$(CC) $(CFLAGS) -o $@ -c $<
 
-%.o: libacfutils/src/%.c
-	$(CC) $(CFLAGS) -o $(notdir $@) -c $<
+$(OBJDIR)/%.o: libacfutils/src/%.c
+	$(CC) $(CFLAGS) -o $@ -c $<
 	
-$(TARGET): $(OBJECTS) $(LACF_OBJECTS)
-	$(LD) -o $(TARGET) $(LDFLAGS) $(OBJECTS) $(LACF_OBJECTS) $(LIBS)
+$(TARGET): $(OBJECTS) $(LACFU_OBJECTS)
+	$(LD) -o $(TARGET) $(LDFLAGS) $(OBJECTS) $(LACFU_OBJECTS) $(LIBS)
 
 clean:
-	rm $(OBJECTS) $(LACF_OBJECTS) $(TARGET)
+	rm $(OBJECTS) $(LACFU_OBJECTS) $(TARGET)
 
 # install the just compiled target
 install: $(TARGET)
