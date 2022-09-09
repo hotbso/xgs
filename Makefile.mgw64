@@ -1,35 +1,41 @@
 .SUFFIXES: .obj
 
 SDK=../SDK
-ACFUT=../libacfutils-redist
-PLUGDIR=/e/X-Plane-11/Resources/plugins/xgs
-
+PLUGDIR=/e/X-Plane-12/Resources/plugins/xgs
+LIBACFUTILS_VERSION="hotbso subset"
 TARGET=win.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 OBJECTS=$(SOURCES:.c=.o)
 
+LACF_SOURCES=$(wildcard libacfutils/src/*.c)
+LACF_OBJECTS=$(notdir $(LACF_SOURCES:.c=.o))
+
 CC=x86_64-w64-mingw32-gcc
 LD=x86_64-w64-mingw32-gcc
 
 CFLAGS+=-mdll -g0 -O2 -s -Wall -fdiagnostics-color -Wno-format-overflow \
+    -D_POSIX_C_SOURCE -DUNICODE -DLIBACFUTILS_VERSION='$(LIBACFUTILS_VERSION)' \
     -DWINDOWS -DWIN32 -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 \
-	-I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include -DIBM=1 \
+	-I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -Ilibacfutils/src/ -DIBM=1 \
     -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301 $(DEFINES)
 
 LDFLAGS=-shared -static-libgcc -static -lpthread
-LIBS=-L$(ACFUT)/win64/lib -L$(SDK)/Libraries/Win -lacfutils -lDbghelp -lpsapi -lXPLM_64 -lXPWidgets_64
+LIBS=-L$(SDK)/Libraries/Win -lDbghelp -lpsapi -lXPLM_64 -lXPWidgets_64 -lz -liconv
 
 all: $(TARGET)
 
-.c.o:
-	$(CC) $(CFLAGS) -c $<
+%.o: %.c
+	$(CC) $(CFLAGS) -o $(notdir $@) -c $<
+
+%.o: libacfutils/src/%.c
+	$(CC) $(CFLAGS) -o $(notdir $@) -c $<
 	
-$(TARGET): $(OBJECTS)
-	$(LD) -o $(TARGET) $(LDFLAGS) $(OBJECTS) $(LIBS)
+$(TARGET): $(OBJECTS) $(LACF_OBJECTS)
+	$(LD) -o $(TARGET) $(LDFLAGS) $(OBJECTS) $(LACF_OBJECTS) $(LIBS)
 
 clean:
-	rm $(OBJECTS) $(TARGET)
+	rm $(OBJECTS) $(LACF_OBJECTS) $(TARGET)
 
 # install the just compiled target
 install: $(TARGET)
