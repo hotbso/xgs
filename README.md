@@ -27,3 +27,10 @@ Thanks to
 - Saso Kiselkov for his fantastic libacfutils library https://github.com/skiselkov/libacfutils !
 - hoempapaaa for providing support for MacOS https://forums.x-plane.org/index.php?/profile/703701-hoempapaaa
 - Rodeo314 for providing support for MacOS https://github.com/Rodeo314
+
+Note:
+Saso Kiselkov no longer updates the precompiled redist- kit of libacfutils and the latest one is not compatible with XP12.
+Therefore this repo contains a small subset of libacfutils of the above mentioned repo (commit
+7e25f911d504b002203825a0af39c5f8cdc818d0) needed for airportdb .
+Only conf.c was replaced with an older version that does not depend on CURL which is a pain to provide on mingw64.
+
