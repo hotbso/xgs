@@ -3,7 +3,6 @@ SDK=../SDK
 OBJDIR=./OBJ
 
 LIBACFUTILS_VERSION="hotbso subset"
-TARGET=win.xpl
 TARGET=lin.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
