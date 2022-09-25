@@ -1,10 +1,14 @@
 SDK=../SDK
-ACFUT=../libacfutils-redist
+OBJDIR=./OBJ
 
+LIBACFUTILS_VERSION="hotbso subset"
 TARGET=mac.xpl
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
-OBJECTS=$(SOURCES:.c=.o)
+OBJECTS=$(addprefix $(OBJDIR)/, $(SOURCES:.c=.o))
+
+LACFU_SOURCES=$(wildcard libacfutils/src/*.c)
+LACFU_OBJECTS=$(addprefix $(OBJDIR)/, $(notdir $(LACFU_SOURCES:.c=.o)))
 
 OSXC=-arch x86_64 -mmacosx-version-min=10.9
 OSXL=-arch x86_64 -mmacosx-version-min=10.9
@@ -12,19 +16,25 @@ OSXL=-arch x86_64 -mmacosx-version-min=10.9
 DEFS= -DAPL=1 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG \
     -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301
 
-CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -I$(ACFUT)/include $(DEFS) $(OSXC)
+CFLAGS+=-O2 -Wall -I$(SDK)/CHeaders/XPLM -I$(SDK)/CHeaders/Widgets -Ilibacfutils/src $(DEFS) $(OSXC)
+LACFU_CFLAGS=-DLIBACFUTILS_VERSION='$(LIBACFUTILS_VERSION)' $(CFLAGS)
+
 LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported_symbols_list -Wl,linkscript.mac
 
 # https://pewpewthespells.com/blog/static_and_dynamic_libraries.html
-LIBS+=-L$(ACFUT)/mac64/lib -lacfutils -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
+LIBS+= -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
 
 all: $(TARGET)
+    $(shell [ -d $(OBJDIR) ] || mkdir $(OBJDIR))
 
-.c.o:
-	$(CC) $(CFLAGS) -c $<
+$(OBJDIR)/%.o: %.c
+	$(CC) $(CFLAGS) -o $@ -c $<
 
-$(TARGET): $(OBJECTS)
-	$(CC) -o $(TARGET) $(LNFLAGS) $(OBJECTS) $(LIBS)
+$(OBJDIR)/%.o: libacfutils/src/%.c
+	$(CC) $(LACFU_CFLAGS) -o $@ -c $<
+
+$(TARGET): $(OBJECTS) $(LACFU_OBJECTS)
+	$(CC) -o $(TARGET) $(LNFLAGS) $(OBJECTS) $(LACFU_OBJECTS) $(LIBS)
 
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(LACFU_OBJECTS) $(TARGET)
