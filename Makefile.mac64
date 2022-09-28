@@ -10,8 +10,8 @@ OBJECTS=$(addprefix $(OBJDIR)/, $(SOURCES:.c=.o))
 LACFU_SOURCES=$(wildcard libacfutils/src/*.c)
 LACFU_OBJECTS=$(addprefix $(OBJDIR)/, $(notdir $(LACFU_SOURCES:.c=.o)))
 
-OSXC=-arch x86_64 -mmacosx-version-min=10.9
-OSXL=-arch x86_64 -mmacosx-version-min=10.9
+OSXC=-arch x86_64 -mmacosx-version-min=10.11
+OSXL=-arch x86_64 -mmacosx-version-min=10.11
 
 DEFS= -DAPL=1 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG \
     -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301
