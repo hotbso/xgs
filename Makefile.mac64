@@ -24,6 +24,9 @@ LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported
 # https://pewpewthespells.com/blog/static_and_dynamic_libraries.html
 LIBS+= -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
 
+# ships with macOS
+LIBS+=-liconv
+
 all: $(TARGET)
     $(shell [ -d $(OBJDIR) ] || mkdir $(OBJDIR))
 
