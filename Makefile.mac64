@@ -10,8 +10,8 @@ OBJECTS=$(addprefix $(OBJDIR)/, $(SOURCES:.c=.o))
 LACFU_SOURCES=$(wildcard libacfutils/src/*.c)
 LACFU_OBJECTS=$(addprefix $(OBJDIR)/, $(notdir $(LACFU_SOURCES:.c=.o)))
 
-OSXC=-arch x86_64 -mmacosx-version-min=10.9
-OSXL=-arch x86_64 -mmacosx-version-min=10.9
+OSXC=-arch x86_64 -mmacosx-version-min=10.11
+OSXL=-arch x86_64 -mmacosx-version-min=10.11
 
 DEFS= -DAPL=1 -fPIC -fno-stack-protector -fvisibility=hidden -ffast-math -DNDEBUG \
     -DXPLM200 -DXPLM210 -DXPLM300 -DXPLM301
@@ -23,6 +23,9 @@ LNFLAGS+=-dynamiclib -shared -rdynamic $(OSXL) -fvisibility=hidden -Wl,-exported
 
 # https://pewpewthespells.com/blog/static_and_dynamic_libraries.html
 LIBS+= -F $(SDK)/Libraries/Mac -framework XPLM -framework XPWidgets
+
+# ships with macOS
+LIBS+=-liconv
 
 all: $(TARGET)
     $(shell [ -d $(OBJDIR) ] || mkdir $(OBJDIR))
