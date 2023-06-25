@@ -5,6 +5,12 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/param.h>
+
+#define XPLM200
+#define XPLM210
+#define XPLM300
+#define XPLM301
+
 #include "XPLMPlugin.h"
 #include "XPLMPlanes.h"
 #include "XPLMDisplay.h"
@@ -20,7 +26,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.45"
+#define VERSION "3.46"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
