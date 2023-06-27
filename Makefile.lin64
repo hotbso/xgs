@@ -1,6 +1,6 @@
-PLUGINS=../../X-Plane-12/Resources/plugins/xgs
+PLUGINS=../../../X-Plane-12/Resources/plugins/xgs
 SDK=../SDK
-OBJDIR=./OBJ
+OBJDIR=./OBJ_LX
 
 LIBACFUTILS_VERSION="hotbso subset"
 TARGET=lin.xpl
