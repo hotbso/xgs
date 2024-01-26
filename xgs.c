@@ -26,7 +26,7 @@
 #include <acfutils/assert.h>
 #include <acfutils/airportdb.h>
 
-#define VERSION "3.46"
+#define VERSION "3.50"
 
 static float flight_loop_cb(float inElapsedSinceLastCall,
                 float inElapsedTimeSinceLastFlightLoop, int inCounter,
@@ -51,7 +51,7 @@ static int init_failure;
 static XPWidgetID main_widget;
 static XPLMDataRef gear_fnrml_dr, flight_time_dr, acf_num_dr, icao_dr,
         lat_dr, lon_dr, elevation_dr, y_agl_dr, hdg_dr, vy_dr, vr_enabled_dr,
-        theta_dr, in_replay_dr;
+        theta_dr, phi_dr, in_replay_dr;
 
 /* acf specific datarefs and data */
 static XPLMDataRef acf_ias_dr, toliss_vls_dr, toliss_strut_compress_dr;
@@ -72,7 +72,7 @@ static int acf_last_state;
 static float landing_vspeed;
 static float last_vspeed;
 static float landing_G;
-static float landing_theta;
+static float landing_theta, landing_phi;
 static float lastG;
 static float landing_ias;
 static vect2_t landing_thr_v;   /* landing threshold */
@@ -511,7 +511,8 @@ static int print_landing_message()
     strcpy(landMsg[0], rating[i].txt);
 	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[0], strlen(landMsg[0])))));
 
-    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s / %.1f°", landing_vspeed * MS_2_FPM, landing_vspeed, landing_theta);
+    sprintf(landMsg[1], "Vy: %.0f fpm / %.2f m/s / p %.1f° / b %.1f°",
+            landing_vspeed * MS_2_FPM, landing_vspeed, landing_theta, landing_phi);
 	w_width = MAX(w_width, (int)(2*SIDE_MARGIN + ceil(XPLMMeasureString(xplmFont_Basic, landMsg[1], strlen(landMsg[1])))));
 
     i = 2;
@@ -880,6 +881,7 @@ static void record_touchdown()
         landing_ias = XPLMGetDataf(acf_ias_dr);
 
     landing_theta = XPLMGetDataf(theta_dr);
+    landing_phi = XPLMGetDataf(phi_dr);
 }
 
 
@@ -1059,9 +1061,10 @@ PLUGIN_API int XPluginEnable(void)
             lat_dr = XPLMFindDataRef("sim/flightmodel/position/latitude");
             lon_dr = XPLMFindDataRef("sim/flightmodel/position/longitude");
             y_agl_dr = XPLMFindDataRef("sim/flightmodel/position/y_agl");
-            hdg_dr = XPLMFindDataRef("sim/flightmodel/position/true_psi");
             vy_dr = XPLMFindDataRef("sim/flightmodel/position/local_vy");
-            theta_dr = XPLMFindDataRef("sim/flightmodel/position/theta");
+            theta_dr = XPLMFindDataRef("sim/flightmodel2/position/true_theta");
+            phi_dr = XPLMFindDataRef("sim/flightmodel2/position/true_phi");
+            hdg_dr = XPLMFindDataRef("sim/flightmodel2/position/true_psi");
 
             elevation_dr = XPLMFindDataRef("sim/flightmodel/position/elevation");
             vr_enabled_dr = XPLMFindDataRef("sim/graphics/VR/enabled");
